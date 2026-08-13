@@ -1,59 +1,86 @@
-name: Build RMK firmware
+name: RMK-Mejiro CI/CD
 
 on:
   push:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  RUST_MIN_STACK: 67108864
+
 jobs:
-  build:
+  host:
+    name: Host tests and static checks
     runs-on: ubuntu-latest
-    env:
-      RUST_MIN_STACK: 67108864
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Validate keyboard contract
+        run: python3 tools/validate_keyboard.py
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run TDD contract tests
+        run: cargo test --target x86_64-unknown-linux-gnu --lib
+      - name: Run Clippy
+        run: cargo clippy --lib --target x86_64-unknown-linux-gnu -- -D warnings
+      - name: Install coverage tool
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Enforce unit-test coverage
+        run: cargo llvm-cov --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
 
+  firmware:
+    name: Build central and peripheral firmware
+    runs-on: ubuntu-latest
+    needs: host
+    steps:
+      - uses: actions/checkout@v4
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
-
+      - name: Configure libclang discovery
+        run: |
+          libclang_path="$(find /usr/lib -type f -name 'libclang.so*' -print -quit | xargs -r dirname)"
+          test -n "$libclang_path"
+          echo "LIBCLANG_PATH=$libclang_path" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
-
+        with:
+          targets: thumbv7em-none-eabihf
+          components: llvm-tools-preview
       - uses: cargo-bins/cargo-binstall@main
-
       - name: Install firmware tools
         run: cargo binstall cargo-make cargo-binutils cargo-hex-to-uf2 flip-link -y
-
       - name: Build firmware and generate UF2/HEX
         run: cargo make uf2 --release
-
       - name: Stage ELF firmware
-        env:
-          PROJECT_NAME: Cygnus-M-RMK
         run: |
-          for bin in central peripheral; do
-            cp "target/thumbv7em-none-eabihf/release/$bin" "${PROJECT_NAME}-${bin}.elf"
-          done
-
+          cp target/thumbv7em-none-eabihf/release/central RMK-Mejiro-central.elf
+          cp target/thumbv7em-none-eabihf/release/peripheral RMK-Mejiro-peripheral.elf
       - name: Validate firmware files
-        run: file Cygnus-M-RMK-*.uf2 Cygnus-M-RMK-*.hex Cygnus-M-RMK-*.elf
-
-      - name: Upload UF2 artifacts
-        uses: actions/upload-artifact@v7
+        run: file RMK-Mejiro-*.uf2 RMK-Mejiro-*.hex RMK-Mejiro-*.elf
+      - name: Upload firmware bundle
+        uses: actions/upload-artifact@v4
         with:
-          name: Cygnus-M-RMK-firmware_uf2
-          path: Cygnus-M-RMK-*.uf2
+          name: RMK-Mejiro-firmware
+          path: RMK-Mejiro-*.{uf2,hex,elf}
           if-no-files-found: error
 
-      - name: Upload HEX artifacts
-        uses: actions/upload-artifact@v7
+  release:
+    name: Publish release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: firmware
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          name: Cygnus-M-RMK-firmware_hex
-          path: Cygnus-M-RMK-*.hex
-          if-no-files-found: error
-
-      - name: Upload ELF artifacts
-        uses: actions/upload-artifact@v7
+          name: RMK-Mejiro-firmware
+          path: dist
+      - uses: softprops/action-gh-release@v2
         with:
-          name: Cygnus-M-RMK-firmware_elf
-          path: Cygnus-M-RMK-*.elf
-          if-no-files-found: error
+          files: dist/RMK-Mejiro-*
+          generate_release_notes: true

@@ -1,66 +1,44 @@
-# Cygnus-M (RMK)
+# RMK-Mejiro
 
-[n18011/Cygnus-M](https://github.com/n18011/Cygnus-M) を RMK 0.8.2 向けに移植したファームウェアです。
+[JEEBIS27/qmk_firmware の Mejiro31](https://github.com/JEEBIS27/qmk_firmware/tree/master/keyboards%2Fjeebis%2Fmejiro31)
+を、[n18011/Cygnus-M-RMK の `rmk-migration` branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
+をターゲットとしてRMK 0.8.2へ移植したファームウェアです。
 
 ## 構成
 
-- Seeed XIAO nRF52840 を左右に 1 枚ずつ使用する BLE 分割キーボード
-- 右側（元の `Cygnus_R`）が Central、左側（元の `Cygnus_L`）が Peripheral
-- 4 行・左右合計 51 キー、7 レイヤー、BLE プロファイル 5 個
-- 左側に EC11 ロータリーエンコーダー、右側に PMW3610 トラックボール
-- 元の ZMK キーマップ、コンボ、モールス入力、手動マウス/スクロールレイヤーを移植
+- Seeed XIAO nRF52840を使うBLE split keyboard
+- Central側のPMW3610トラックボール、Peripheral側のEC11エンコーダー
+- Vial対応、10レイヤー（QWERTY、Mejiro/Gemini、数字、機能、ポインティング、Bluetooth）
+- `Kb0`〜`Kb23`をMejiro入力へ割り当て、first-up chord処理とローマ字出力をRustで実装
 
-レイアウトとキーマップは [keyboard.toml](keyboard.toml)、Vial 用の行列定義は
-[vial.json](vial.json) にあります。
+ハードウェア配線とsplit設定は[target branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
+を維持し、Mejiro31のRP2040固有配線は持ち込みません。移植元のCソースは
+[upstream/qmk](upstream/qmk)に監査用リファレンスとして保存しています。対応表は
+[docs/porting.md](docs/porting.md)を参照してください。
 
-## 配線
+## ビルド
 
-| 側 | 行ピン | 列ピン | その他の入力 |
-| --- | --- | --- | --- |
-| Central / 右 (`Cygnus_R`) | `P0_03`, `P0_28`, `P0_29`, `P1_11` | `P1_15`, `P1_14`, `P1_13`, `P1_12`, `P0_10`, `P1_10` | PMW3610 SCK=`P0_05`, SDIO=`P0_04`, CS=`P0_09`, MOTION=`P0_02` |
-| Peripheral / 左 (`Cygnus_L`) | `P0_03`, `P0_28`, `P0_29`, `P1_11` | `P1_15`, `P1_14`, `P1_13`, `P1_12`, `P0_10`, `P0_09`, `P0_04` | EC11 A=`P0_05`, B=`P0_02` |
-
-ピン名は XIAO BLE の D ピンではなく、nRF52840 の GPIO 名で記述しています。
-元の ZMK 配線では `col2row` だったため、RMK でも `row2col = false` にしています。
-
-## ビルドと書き込み
-
-Rust、`thumbv7em-none-eabihf` ターゲット、`cargo-make`、`clang/libclang` を準備したうえで実行します。
-
-Ubuntu系では、事前に `sudo apt install clang libclang-dev` を実行してください。`nrf-sdc` の
-バインディング生成に libclang が必要です。
+必要なもの: Rust stable、`thumbv7em-none-eabihf`、`cargo-make`、`clang`、`libclang-dev`。
 
 ```sh
-cd Cygnus-M-RMK
 rustup target add thumbv7em-none-eabihf
 cargo install --force cargo-make
 cargo make uf2 --release
 ```
 
-生成された UF2 のうち `central` を右側（`Cygnus_R`）へ、`peripheral` を左側（`Cygnus_L`）へ書き込みます。
-XIAO のブートローダーが UF2 に対応していることを確認してください。RMK 0.7 以降へ
-移行する際は BLE スタックが変わるため、ZMK へ戻す場合にブートローダーの再書き込みが
-必要になることがあります。
+生成された`central`を右側、`peripheral`を左側へ書き込みます。nRF52840 BLEの初回
+ペアリングやVialロック解除は`keyboard.toml`の設定に従います。
 
-## Vial Web
+## 開発・検証
 
-Vial Web は USB ケーブルを右側の Central (`Cygnus_R`) に接続して使用します。
-初回接続時は Vial のロック解除操作で、右側の `row=0,col=7` と `row=0,col=8` のキーを
-同時に押してください。これは `keyboard.toml` の `unlock_keys` に設定した解除コンボです。
-解除後のキーマップ変更は内蔵ストレージへ保存されます。
+```sh
+python3 tools/validate_keyboard.py
+cargo fmt --all -- --check
+RUST_MIN_STACK=67108864 cargo test --target x86_64-unknown-linux-gnu --lib
+cargo clippy --lib --target x86_64-unknown-linux-gnu -- -D warnings
+cargo llvm-cov --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
+```
 
-## 移植時の差分
-
-- RMK 0.8.2 の PMW3610 はカーソル入力として直接扱います。ZMK の自動マウスレイヤー／
-  自動スクロールレイヤーは RMK の同等機能がないため、元の手動レイヤー切り替えを維持しています。
-- PMW3610 の X 軸は基板上のセンサー向きに合わせ、`invert_x = false` としています。
-- RMK 0.8.2 の `async_matrix` は現行ツールチェーンで型不整合になるため有効化せず、通常の
-  マトリクススキャンを使用しています。キー配列・BLE分割・入力デバイスの動作には影響しません。
-- `BT_CLR_ALL` は RMK の `User9`（`CLR_PEER`、長押し 5 秒で split peer の bond を消去）に割り当て、
-  `BT0`～`BT4` は `User0`～`User4`、`BT_NEXT`/`BT_PREV` は `User5`/`User6` に移しました。
-- ZMK の `&kt KP_N4` は RMK 0.8.2 に対応するキー・トグルがないため、通常の `Kp4` にしています。
-- 元リポジトリの RGB adapter / Studio RPC は RMK 版では未設定です。
-
-RMK の分割キーボード設定は [公式ドキュメント](https://rmk.rs/docs/configuration/split_keyboard)、
-PMW3610 の設定は [入力デバイスのドキュメント](https://rmk.rs/docs/configuration/input_device/pmw3610)
-に準拠しています。
+CIは上記のホストTDD検証に加えて、80%以上の行カバレッジ、central/peripheralのARMビルド、
+UF2/HEX/ELF成果物の保存を行います。`v*`タグでは成果物をGitHub Releaseへ公開します。
+`RUST_MIN_STACK`はRMKの大きなマクロ展開を安定してコンパイルするための設定です。
