@@ -66,7 +66,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RMK-Mejiro-firmware
-          path: RMK-Mejiro-*.{uf2,hex,elf}
+          path: |
+            RMK-Mejiro-*.uf2
+            RMK-Mejiro-*.hex
+            RMK-Mejiro-*.elf
           if-no-files-found: error
 
   release:
