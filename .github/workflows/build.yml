@@ -47,6 +47,9 @@ jobs:
           test -n "$libclang_file"
           echo "Using libclang: $libclang_file"
           echo "LIBCLANG_PATH=$(dirname "$libclang_file")" >> "$GITHUB_ENV"
+          clang_resource_dir="$(find "$(dirname "$libclang_file")/clang" -type d -name include -print -quit)"
+          test -n "$clang_resource_dir"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=-I$clang_resource_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: thumbv7em-none-eabihf
