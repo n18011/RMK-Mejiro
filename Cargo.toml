@@ -2,7 +2,7 @@
 name = "rmk-mejiro"
 version = "0.1.0"
 authors = ["n18011"]
-description = "Cygnus-M keyboard firmware migrated from ZMK to RMK"
+description = "Mejiro31 input engine ported to Cygnus-M RMK firmware"
 homepage = "https://github.com/n18011/RMK-Mejiro"
 repository = "https://github.com/n18011/RMK-Mejiro"
 readme = "README.md"
@@ -11,11 +11,18 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 heapless = "0.8"
+rmk = { version = "=0.8.2", default-features = false, features = [
+    "defmt",
+    "storage",
+    "vial",
+    "vial_lock",
+    "split",
+    "mejiro",
+] }
 
 [target.'cfg(target_arch = "arm")'.dependencies]
 rmk = { version = "=0.8.2", features = [
     "nrf52840_ble",
-    "split",
     "adafruit_bl",
 ] }
 nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", features = [

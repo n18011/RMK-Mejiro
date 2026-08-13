@@ -20,10 +20,14 @@ use {
 };
 
 use crate::channel::{KEY_EVENT_CHANNEL, KEYBOARD_REPORT_CHANNEL};
+#[cfg(feature = "mejiro")]
+use crate::channel::MEJIRO_EVENT_CHANNEL;
 use crate::combo::Combo;
 use crate::config::Hand;
 use crate::descriptor::KeyboardReport;
 use crate::event::{KeyPos, KeyboardEvent, KeyboardEventPos};
+#[cfg(feature = "mejiro")]
+use crate::event::MejiroKeyEvent;
 use crate::fork::{ActiveFork, StateBits};
 use crate::hid::Report;
 use crate::input_device::Runnable;
@@ -787,6 +791,22 @@ impl<'a, const ROW: usize, const COL: usize, const NUM_LAYER: usize, const NUM_E
 
         #[cfg(feature = "_ble")]
         LAST_KEY_TIMESTAMP.signal(Instant::now().as_secs() as u32);
+
+        #[cfg(feature = "mejiro")]
+        if let Some(keycode) = match key_action.to_action() {
+            Action::Key(keycode) | Action::KeyWithModifier(keycode, _) if keycode.is_kb() => Some(keycode),
+            _ => None,
+        } && let KeyboardEventPos::Key(KeyPos { row, col }) = event.pos
+        {
+            MEJIRO_EVENT_CHANNEL
+                .send(MejiroKeyEvent {
+                    row,
+                    col,
+                    pressed: event.pressed,
+                    keycode,
+                })
+                .await;
+        }
 
         #[cfg(feature = "controller")]
         send_controller_event(&mut self.controller_pub, ControllerEvent::Key(event, key_action));

@@ -39,21 +39,17 @@ fn main() {
     // `memory.x` is changed.
     println!("cargo:rerun-if-changed=memory.x");
 
-    // Specify linker arguments.
-
-    // `--nmagic` is required if memory section addresses are not aligned to 0x10000,
-    // for example the FLASH and RAM sections in your `memory.x`.
-    // See https://github.com/rust-embedded/cortex-m-quickstart/pull/95
-    println!("cargo:rustc-link-arg=--nmagic");
-
-    // Set the linker script to the one provided by cortex-m-rt.
-    println!("cargo:rustc-link-arg=-Tlink.x");
-
-    // Set the extra linker script from defmt
-    println!("cargo:rustc-link-arg=-Tdefmt.x");
-
-    // Use flip-link overflow check: https://github.com/knurling-rs/flip-link
-    println!("cargo:rustc-linker=flip-link");
+    // Firmware-only linker arguments. Keeping these out of host test builds
+    // lets `cargo test --target x86_64-unknown-linux-gnu` run the pure-Rust
+    // Mejiro core without trying to link an ARM memory image.
+    if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("arm") {
+        // `--nmagic` is required if memory section addresses are not aligned
+        // to 0x10000, for example the FLASH and RAM sections in `memory.x`.
+        println!("cargo:rustc-link-arg=--nmagic");
+        println!("cargo:rustc-link-arg=-Tlink.x");
+        println!("cargo:rustc-link-arg=-Tdefmt.x");
+        println!("cargo:rustc-linker=flip-link");
+    }
 }
 
 fn generate_vial_config() {

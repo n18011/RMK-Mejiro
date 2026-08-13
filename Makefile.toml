@@ -23,7 +23,7 @@ args = [
     "--",
     "-O",
     "ihex",
-    "Cygnus-M-RMK-central.hex",
+    "RMK-Mejiro-central.hex",
 ]
 dependencies = ["build"]
 
@@ -41,7 +41,7 @@ args = [
     "--",
     "-O",
     "ihex",
-    "Cygnus-M-RMK-peripheral.hex",
+    "RMK-Mejiro-peripheral.hex",
 ]
 dependencies = ["build"]
 
@@ -55,7 +55,7 @@ args = [
     "--",
     "-O",
     "binary",
-    "Cygnus-M-RMK-central.bin",
+    "RMK-Mejiro-central.bin",
 ]
 dependencies = ["build"]
 
@@ -69,7 +69,7 @@ args = [
     "--",
     "-O",
     "binary",
-    "Cygnus-M-RMK-peripheral.bin",
+    "RMK-Mejiro-peripheral.bin",
 ]
 dependencies = ["build"]
 
@@ -85,9 +85,9 @@ command = "cargo"
 args = [
     "hex-to-uf2",
     "--input-path",
-    "Cygnus-M-RMK-central.hex",
+    "RMK-Mejiro-central.hex",
     "--output-path",
-    "Cygnus-M-RMK-central.uf2",
+    "RMK-Mejiro-central.uf2",
     "--family",
     "nrf52840",
 ]
@@ -102,9 +102,9 @@ command = "cargo"
 args = [
     "hex-to-uf2",
     "--input-path",
-    "Cygnus-M-RMK-peripheral.hex",
+    "RMK-Mejiro-peripheral.hex",
     "--output-path",
-    "Cygnus-M-RMK-peripheral.uf2",
+    "RMK-Mejiro-peripheral.uf2",
     "--family",
     "nrf52840",
 ]

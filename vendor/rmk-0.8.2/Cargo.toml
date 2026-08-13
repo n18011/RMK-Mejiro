@@ -55,6 +55,7 @@ adafruit_bl = ["_nrf_ble"]
 async_matrix = []
 col2row = []
 controller = []
+mejiro = []
 default = [
     "defmt",
     "storage",

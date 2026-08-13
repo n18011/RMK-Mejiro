@@ -16,6 +16,8 @@ use {
 #[cfg(feature = "split")]
 use crate::SPLIT_PERIPHERALS_NUM;
 use crate::event::{Event, KeyboardEvent};
+#[cfg(feature = "mejiro")]
+use crate::event::MejiroKeyEvent;
 use crate::hid::Report;
 use crate::{EVENT_CHANNEL_SIZE, REPORT_CHANNEL_SIZE, RawMutex};
 #[cfg(feature = "storage")]
@@ -58,6 +60,9 @@ pub type ControllerPub = Publisher<
 pub static LED_SIGNAL: Signal<RawMutex, LedIndicator> = Signal::new();
 /// Channel for key events only
 pub static KEY_EVENT_CHANNEL: Channel<RawMutex, KeyboardEvent, EVENT_CHANNEL_SIZE> = Channel::new();
+/// Resolved Mejiro key events, published in addition to normal keyboard processing.
+#[cfg(feature = "mejiro")]
+pub static MEJIRO_EVENT_CHANNEL: Channel<RawMutex, MejiroKeyEvent, EVENT_CHANNEL_SIZE> = Channel::new();
 /// Channel for all other events
 pub static EVENT_CHANNEL: Channel<RawMutex, Event, EVENT_CHANNEL_SIZE> = Channel::new();
 /// Channel for keyboard report from input processors to hid writer/reader

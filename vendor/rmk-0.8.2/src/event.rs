@@ -2,6 +2,8 @@ use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "controller")]
 use {rmk_types::action::KeyAction, rmk_types::led_indicator::LedIndicator, rmk_types::modifier::ModifierCombination};
+#[cfg(feature = "mejiro")]
+use rmk_types::keycode::KeyCode;
 
 use crate::input_device::rotary_encoder::Direction;
 
@@ -87,6 +89,16 @@ impl KeyboardEventPos {
 pub struct KeyPos {
     pub row: u8,
     pub col: u8,
+}
+
+/// A resolved Mejiro virtual key event.
+#[cfg(feature = "mejiro")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MejiroKeyEvent {
+    pub row: u8,
+    pub col: u8,
+    pub pressed: bool,
+    pub keycode: KeyCode,
 }
 
 /// Event for rotary encoder
