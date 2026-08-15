@@ -377,3 +377,7 @@ version = "0.9"
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))'.dependencies.cortex-m]
 version = "0.7"
+
+# Keep the vendored crate independently testable without making it a member of
+# the firmware workspace.
+[workspace]

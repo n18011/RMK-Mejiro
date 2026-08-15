@@ -10,10 +10,13 @@
 - Central側のPMW3610トラックボール、Peripheral側のEC11エンコーダー
 - Vial対応、10レイヤー（QWERTY、Mejiro/Gemini、数字、機能、ポインティング、Bluetooth）
 - `Kb0`〜`Kb23`をMejiro入力へ割り当て、first-up chord処理とローマ字出力をRustで実装
+- `crates/mejiro-core`にRMK非依存のMejiroコアを配置し、ボードアプリから再利用可能
+- `crates/mejiro-rmk`にRMKイベント/HID接続アダプターを分離
 
 ハードウェア配線とsplit設定は[target branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
 を維持し、Mejiro31のRP2040固有配線は持ち込みません。移植元のCソースは
-[upstream/qmk](upstream/qmk)に監査用リファレンスとして保存しています。対応表は
+[upstream/qmk](upstream/qmk)に監査用リファレンスとして保存しています。現行仕様は
+[docs/specification.md](docs/specification.md)、QMKとの対応表は
 [docs/porting.md](docs/porting.md)を参照してください。
 
 ## ビルド
@@ -26,17 +29,20 @@ cargo install --force cargo-make
 cargo make uf2 --release
 ```
 
-生成された`central`を右側、`peripheral`を左側へ書き込みます。nRF52840 BLEの初回
-ペアリングやVialロック解除は`keyboard.toml`の設定に従います。
+生成された`central`を右側、`peripheral`を左側へ書き込みます。nRF52840 BLE splitは
+初回接続時にCentral側Bluetoothレイヤーの`User9`を5秒保持して明示的にペアリング探索を
+開始し、暗号化リンクが成立したpeerだけを保存します。Vialロック解除は`keyboard.toml`の
+設定に従います。
 
 ## 開発・検証
 
 ```sh
 python3 tools/validate_keyboard.py
+python3 tools/qmk_regression.py
 cargo fmt --all -- --check
-RUST_MIN_STACK=67108864 cargo test --target x86_64-unknown-linux-gnu --lib
-cargo clippy --lib --target x86_64-unknown-linux-gnu -- -D warnings
-cargo llvm-cov --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
+RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu --lib
+cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
+cargo llvm-cov --workspace --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
 ```
 
 CIは上記のホストTDD検証に加えて、80%以上の行カバレッジ、central/peripheralのARMビルド、

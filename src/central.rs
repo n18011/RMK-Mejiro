@@ -1,9 +1,7 @@
 #![no_main]
 #![no_std]
 
-mod mejiro_controller;
-
-use mejiro_controller::MejiroController;
+use mejiro_rmk::MejiroController;
 use panic_probe as _;
 use rmk::macros::rmk_central;
 

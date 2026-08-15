@@ -26,6 +26,16 @@ mod vial;
 #[cfg(feature = "vial_lock")]
 mod vial_lock;
 
+const VIA_MACRO_PAYLOAD_SIZE: usize = 28;
+
+fn macro_range(offset: usize, size: usize, capacity: usize) -> Option<(usize, usize)> {
+    if size > VIA_MACRO_PAYLOAD_SIZE {
+        return None;
+    }
+    let end = offset.checked_add(size)?;
+    (end <= capacity).then_some((offset, end))
+}
+
 pub(crate) struct VialService<
     'a,
     RW: HidWriterTrait<ReportType = ViaReport> + HidReaderTrait<ReportType = ViaReport>,
@@ -241,44 +251,49 @@ impl<
             ViaCommand::DynamicKeymapMacroGetBuffer => {
                 let offset = BigEndian::read_u16(&report.output_data[1..3]) as usize;
                 let size = report.output_data[3] as usize;
-                if size <= 28 {
-                    report.input_data[4..4 + size].copy_from_slice(
-                        &self.keymap.borrow().behavior.keyboard_macros.macro_sequences[offset..offset + size],
-                    );
+                let macro_capacity = self.keymap.borrow().behavior.keyboard_macros.macro_sequences.len();
+                if let Some((start, end)) = macro_range(offset, size, macro_capacity) {
+                    report.input_data[4..4 + size]
+                        .copy_from_slice(&self.keymap.borrow().behavior.keyboard_macros.macro_sequences[start..end]);
                     debug!("Get macro buffer: offset: {}, data: {:?}", offset, report.input_data);
                 } else {
+                    warn!("Invalid macro read range: offset: {}, size: {}", offset, size);
                     report.input_data[0] = 0xFF;
                 }
             }
             ViaCommand::DynamicKeymapMacroSetBuffer => {
                 // Every write writes all buffer space of the macro(if it's not empty)
-                let offset = BigEndian::read_u16(&report.output_data[1..3]);
+                let offset = BigEndian::read_u16(&report.output_data[1..3]) as usize;
                 // Current sequence size, <= 28
-                let size = report.output_data[3];
-                // End of current sequence in the macro cache
-                let end = offset + size as u16;
+                let size = report.output_data[3] as usize;
+                let macro_capacity = self.keymap.borrow().behavior.keyboard_macros.macro_sequences.len();
 
-                // The first sequence, reset the macro cache
-                if offset == 0 {
-                    self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences = [0; MACRO_SPACE_SIZE];
-                }
+                if let Some((start, end)) = macro_range(offset, size, macro_capacity) {
+                    // The first sequence, reset the macro cache
+                    if offset == 0 {
+                        self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences = [0; MACRO_SPACE_SIZE];
+                    }
 
-                // Update macro cache
-                info!("Setting macro buffer, offset: {}, size: {}", offset, size);
-                self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences[offset as usize..end as usize]
-                    .copy_from_slice(&report.output_data[4..4 + size as usize]);
+                    // Update macro cache
+                    info!("Setting macro buffer, offset: {}, size: {}", offset, size);
+                    self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences[start..end]
+                        .copy_from_slice(&report.output_data[4..4 + size]);
 
-                // Then flush macros to storage
-                // #[cfg(feature = "storage")]
-                // let num_zero =
-                //     count_zeros(&self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences[0..end as usize]);
-                #[cfg(feature = "storage")]
-                {
-                    let buf = self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences;
-                    FLASH_CHANNEL
-                        .send(FlashOperationMessage::VialMessage(KeymapData::Macro(buf)))
-                        .await;
-                    info!("Flush macros to storage")
+                    // Then flush macros to storage
+                    // #[cfg(feature = "storage")]
+                    // let num_zero =
+                    //     count_zeros(&self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences[0..end]);
+                    #[cfg(feature = "storage")]
+                    {
+                        let buf = self.keymap.borrow_mut().behavior.keyboard_macros.macro_sequences;
+                        FLASH_CHANNEL
+                            .send(FlashOperationMessage::VialMessage(KeymapData::Macro(buf)))
+                            .await;
+                        info!("Flush macros to storage")
+                    }
+                } else {
+                    warn!("Invalid macro write range: offset: {}, size: {}", offset, size);
+                    report.input_data[0] = 0xFF;
                 }
             }
             ViaCommand::DynamicKeymapMacroReset => {
@@ -421,5 +436,32 @@ impl<'d, D: Driver<'d>> HidReaderTrait for UsbVialReaderWriter<'_, 'd, D> {
             .map_err(HidError::UsbReadError)?;
 
         Ok(read_report)
+    }
+}
+
+#[cfg(test)]
+mod macro_bounds_tests {
+    use super::{VIA_MACRO_PAYLOAD_SIZE, macro_range};
+
+    #[test]
+    fn accepts_ranges_inside_the_macro_buffer() {
+        assert_eq!(macro_range(0, VIA_MACRO_PAYLOAD_SIZE, 128), Some((0, 28)));
+        assert_eq!(macro_range(100, VIA_MACRO_PAYLOAD_SIZE, 128), Some((100, 128)));
+    }
+
+    #[test]
+    fn rejects_payloads_larger_than_one_via_report() {
+        assert_eq!(macro_range(0, VIA_MACRO_PAYLOAD_SIZE + 1, 128), None);
+    }
+
+    #[test]
+    fn rejects_ranges_past_the_macro_buffer() {
+        assert_eq!(macro_range(127, 2, 128), None);
+        assert_eq!(macro_range(129, 0, 128), None);
+    }
+
+    #[test]
+    fn rejects_integer_overflow_before_slicing() {
+        assert_eq!(macro_range(usize::MAX, 1, usize::MAX), None);
     }
 }

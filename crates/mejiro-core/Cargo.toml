@@ -1,0 +1,9 @@
+[package]
+name = "mejiro-core"
+version = "0.1.0"
+edition = "2021"
+description = "Portable no_std Mejiro/Gemini input engine"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+heapless = "0.8"

@@ -17,6 +17,20 @@ use crate::{COMBO_MAX_LENGTH, COMBO_MAX_NUM, MORSE_MAX_NUM};
 #[cfg(feature = "storage")]
 use crate::{channel::FLASH_CHANNEL, host::storage::KeymapData, storage::FlashOperationMessage};
 
+#[cfg(feature = "vial_lock")]
+fn is_mutating_vial_request(report: &ViaReport) -> bool {
+    match report.output_data[1].into() {
+        VialCommand::SetEncoder | VialCommand::SetBehaviorSetting => true,
+        VialCommand::DynamicEntryOp => matches!(
+            report.output_data[2].into(),
+            VialDynamic::DynamicVialMorseSet
+                | VialDynamic::DynamicVialComboSet
+                | VialDynamic::DynamicVialKeyOverrideSet
+        ),
+        _ => false,
+    }
+}
+
 /// Note: vial uses little endian, while via uses big endian
 pub(crate) async fn process_vial<
     'a,
@@ -33,6 +47,12 @@ pub(crate) async fn process_vial<
     // report.output_data[0] == 0xFE -> vial commands
     let vial_command = report.output_data[1].into();
     debug!("Received vial command: {:?}", vial_command);
+    #[cfg(feature = "vial_lock")]
+    if !locker.is_unlocked() && is_mutating_vial_request(report) {
+        warn!("Rejecting locked Vial mutation");
+        report.input_data[0] = 0xFF;
+        return;
+    }
     match vial_command {
         VialCommand::GetKeyboardId => {
             // Returns vial protocol version + vial keyboard id
@@ -550,6 +570,65 @@ pub(crate) async fn process_vial<
             }
         }
         _ => (),
+    }
+}
+
+#[cfg(all(test, feature = "vial_lock"))]
+mod vial_lock_tests {
+    use core::cell::RefCell;
+
+    use embassy_futures::block_on;
+    use rmk_types::action::{EncoderAction, KeyAction};
+    use rmk_types::protocol::vial::{SettingKey, VialCommand, VialDynamic};
+
+    use super::process_vial;
+    use crate::config::{BehaviorConfig, PositionalConfig, VialConfig};
+    use crate::descriptor::ViaReport;
+    use crate::host::via::vial_lock::VialLock;
+    use crate::keymap::KeyMap;
+
+    #[test]
+    fn locked_behavior_setting_does_not_mutate_keymap() {
+        block_on(async {
+            let mut layers = [[[KeyAction::No; 1]; 1]; 1];
+            let mut behavior = BehaviorConfig::default();
+            let mut positional = PositionalConfig::<1, 1>::default();
+            let keymap = RefCell::new(
+                KeyMap::new(
+                    &mut layers,
+                    None::<&mut [[EncoderAction; 0]; 1]>,
+                    &mut behavior,
+                    &mut positional,
+                )
+                .await,
+            );
+            let vial_config = VialConfig::new(&[], &[], &[]);
+            let mut locker = VialLock::new(&[], &keymap);
+            let original_timeout = keymap.borrow().behavior.combo.timeout;
+            let mut report = ViaReport::default();
+            report.output_data[1] = VialCommand::SetBehaviorSetting as u8;
+            report.output_data[2..4].copy_from_slice(&(SettingKey::ComboTimeout as u16).to_le_bytes());
+            report.output_data[4..6].copy_from_slice(&5000u16.to_le_bytes());
+
+            process_vial(&mut report, &vial_config, &mut locker, &keymap).await;
+
+            assert_eq!(keymap.borrow().behavior.combo.timeout, original_timeout);
+            assert!(!locker.is_unlocked());
+
+            locker.unlocking();
+            locker.unlock();
+            process_vial(&mut report, &vial_config, &mut locker, &keymap).await;
+            assert_eq!(keymap.borrow().behavior.combo.timeout.as_millis(), 5000);
+            assert!(locker.is_unlocked());
+
+            locker.lock();
+            report.input_data.fill(0);
+            report.output_data[1] = VialCommand::DynamicEntryOp as u8;
+            report.output_data[2] = VialDynamic::DynamicVialComboSet as u8;
+            process_vial(&mut report, &vial_config, &mut locker, &keymap).await;
+            assert_eq!(report.input_data[0], 0xFF);
+            assert_eq!(keymap.borrow().behavior.combo.timeout.as_millis(), 5000);
+        });
     }
 }
 

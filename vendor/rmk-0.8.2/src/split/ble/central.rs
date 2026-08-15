@@ -17,16 +17,28 @@ use {
 };
 
 use crate::ble::{SLEEPING_STATE, update_ble_phy, update_conn_params};
+#[cfg(feature = "storage")]
 use crate::channel::FLASH_CHANNEL;
 #[cfg(feature = "storage")]
 use crate::split::ble::PeerAddress;
+use crate::split::ble::advertisement::peripheral_id as parse_peripheral_id;
+use crate::split::ble::require_encrypted_link;
 use crate::split::driver::{PeripheralManager, SplitDriverError, SplitReader, SplitWriter};
 use crate::split::{SPLIT_MESSAGE_MAX_SIZE, SplitMessage};
-use crate::storage::{FlashOperationMessage, Storage};
+use crate::storage::Storage;
+#[cfg(feature = "storage")]
+use crate::storage::FlashOperationMessage;
 use crate::{CONNECTION_STATE, SPLIT_CENTRAL_SLEEP_TIMEOUT_SECONDS};
 
 pub(crate) static STACK_STARTED: Signal<crate::RawMutex, bool> = Signal::new();
 pub(crate) static PERIPHERAL_FOUND: Signal<crate::RawMutex, (u8, BdAddr)> = Signal::new();
+/// Physical provisioning gate for a new split peer.
+///
+/// A public service UUID is only a discovery hint; it is not sufficient to
+/// enroll a peer.  The keyboard's long-press clear-peer action explicitly
+/// arms the one-shot scan below.
+pub(crate) static PAIRING_ARMED: Signal<crate::RawMutex, ()> = Signal::new();
+pub(crate) static CLEAR_PEER_REQUEST: Signal<crate::RawMutex, ()> = Signal::new();
 
 // Signals and mutex for syncing scanning state between scanning task and peripheral manager
 static START_SCANNING: Signal<crate::RawMutex, ()> = Signal::new();
@@ -100,25 +112,13 @@ pub async fn scan_peripherals<
                     }
 
                     info!("Scanned new peripheral {:?}", scanned_addr);
-                    let mut slot_updated = false;
                     if let Some(slot) = addrs.borrow_mut().get_mut(found_peripheral_id as usize)
                         && slot.is_none()
                     {
-                        // Update only when the slot is empty
+                        // Keep the candidate in RAM while it is being enrolled.
+                        // Persist it only after the connection has passed the
+                        // encrypted-link gate below.
                         *slot = Some(scanned_addr);
-                        slot_updated = true;
-                    }
-
-                    // Update stored addr.
-                    // This cannot be put inside the `addrs.borrow_mut()` block because the sending is async
-                    if slot_updated {
-                        FLASH_CHANNEL
-                            .send(FlashOperationMessage::PeerAddress(PeerAddress::new(
-                                found_peripheral_id,
-                                true,
-                                scanned_addr,
-                            )))
-                            .await;
                     }
 
                     if addrs.borrow().iter().all(|a| a.is_some()) {
@@ -169,20 +169,8 @@ pub(crate) struct ScanHandler {}
 impl EventHandler for ScanHandler {
     fn on_adv_reports(&self, mut it: LeAdvReportsIter<'_>) {
         while let Some(Ok(report)) = it.next() {
-            // Check advertisement data
-            if report.data.len() < 25 {
-                continue;
-            }
-            if report.data[4] == 0x07
-                && report.data[5..].starts_with(&[
-                    // uuid: 4dd5fbaa-18e5-4b07-bf0a-353698659946
-                    70u8, 153u8, 101u8, 152u8, 54u8, 53u8, 10u8, 191u8, 7u8, 75u8, 229u8, 24u8, 170u8, 251u8, 213u8,
-                    77u8,
-                ])
-                && report.data[21..25] == [0x04, 0xff, 0x18, 0xe1]
-            {
+            if let Some(peripheral_id) = parse_peripheral_id(report.data) {
                 // Uuid and manufacturer specific data check passed
-                let peripheral_id = report.data[25];
                 info!("Found split peripheral: id={:?}, addr={:?}", peripheral_id, report.addr);
                 PERIPHERAL_FOUND.signal((peripheral_id, report.addr));
                 break;
@@ -212,16 +200,35 @@ pub(crate) async fn run_ble_peripheral_manager<
     let mut controller_pub = unwrap!(CONTROLLER_CHANNEL.publisher());
 
     loop {
+        if CLEAR_PEER_REQUEST.try_take().is_some() {
+            if let Some(slot) = addrs.borrow_mut().get_mut(peri_id) {
+                *slot = None;
+            }
+            #[cfg(feature = "storage")]
+            FLASH_CHANNEL
+                .send(FlashOperationMessage::PeerAddress(PeerAddress::new(
+                    peri_id as u8,
+                    false,
+                    [0; 6],
+                )))
+                .await;
+        }
         // Check until the address is available
-        let address = loop {
-            if let Some(Some(addr)) = addrs.borrow().get(peri_id) {
-                break Address::random(*addr);
-            }
-            if !START_SCANNING.signaled() {
-                START_SCANNING.signal(());
-            }
-            // Check again after 500ms
-            embassy_time::Timer::after_millis(500).await;
+        let (address, candidate) = {
+            let mut candidate = false;
+            let address = loop {
+                if let Some(Some(addr)) = addrs.borrow().get(peri_id) {
+                    break Address::random(*addr);
+                }
+                PAIRING_ARMED.wait().await;
+                candidate = true;
+                if !START_SCANNING.signaled() {
+                    START_SCANNING.signal(());
+                }
+                // Check again after 500ms
+                embassy_time::Timer::after_millis(500).await;
+            };
+            (address, candidate)
         };
         info!("Peripheral peer address: {:?}", address);
 
@@ -255,6 +262,25 @@ pub(crate) async fn run_ble_peripheral_manager<
         .await
         {
             Ok(Ok(conn)) => {
+                if let Err(e) = require_encrypted_link(&conn).await {
+                    error!("Rejecting unencrypted split peripheral {}: {:?}", peri_id, e);
+                    clear_pairing_candidate(addrs, peri_id, candidate);
+                    conn.disconnect();
+                    embassy_time::Timer::after_millis(500).await;
+                    continue;
+                }
+                #[cfg(feature = "storage")]
+                if let Some(address) = addrs.borrow().get(peri_id).copied().flatten() {
+                    // A public advertisement is only a candidate.  Do not
+                    // make it durable until the link has been encrypted.
+                    FLASH_CHANNEL
+                        .send(FlashOperationMessage::PeerAddress(PeerAddress::new(
+                            peri_id as u8,
+                            true,
+                            address,
+                        )))
+                        .await;
+                }
                 info!("Connected to peripheral {}", peri_id);
 
                 #[cfg(feature = "controller")]
@@ -269,20 +295,53 @@ pub(crate) async fn run_ble_peripheral_manager<
                 }
             }
             Ok(Err(e)) => {
+                clear_pairing_candidate(addrs, peri_id, candidate);
                 #[cfg(feature = "defmt")]
                 let e = defmt::Debug2Format(&e);
                 error!("Connect to peripheral {} error: {:?}", peri_id, e);
             }
             Err(_) => {
-                // Connect to peripheral timeout
-                warn!("Connect to peripheral {} timeout, clearing", peri_id);
-                if let Some(addr) = addrs.borrow_mut().get_mut(peri_id) {
-                    *addr = None
-                };
+                // Do not erase a previously enrolled peer on a transient
+                // timeout.  Clearing it would make the next scan enroll an
+                // arbitrary device advertising the public split UUID.
+                warn!("Connect to peripheral {} timeout; retaining enrolled peer", peri_id);
+                clear_pairing_candidate(addrs, peri_id, candidate);
             }
         }
         // Reconnect after 500ms
         embassy_time::Timer::after_millis(500).await;
+    }
+}
+
+fn clear_pairing_candidate(
+    addrs: &RefCell<VecView<Option<[u8; 6]>>>,
+    peri_id: usize,
+    candidate: bool,
+) {
+    if candidate {
+        if let Some(slot) = addrs.borrow_mut().get_mut(peri_id) {
+            *slot = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod pairing_candidate_tests {
+    use super::clear_pairing_candidate;
+    use core::cell::RefCell;
+    use heapless::Vec;
+
+    #[test]
+    fn only_unenrolled_candidates_are_cleared_after_failure() {
+        let mut addresses: Vec<Option<[u8; 6]>, 1> = Vec::new();
+        addresses.push(Some([1; 6])).unwrap();
+        let view = RefCell::new(addresses);
+
+        clear_pairing_candidate(&view, 0, false);
+        assert_eq!(view.borrow().get(0), Some(&Some([1; 6])));
+
+        clear_pairing_candidate(&view, 0, true);
+        assert_eq!(view.borrow().get(0), Some(&None));
     }
 }
 

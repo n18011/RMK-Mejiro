@@ -1799,6 +1799,12 @@ impl<'a, const ROW: usize, const COL: usize, const NUM_LAYER: usize, const NUM_E
                                 // Timeout reached, send clear peer message
                                 #[cfg(feature = "controller")]
                                 send_controller_event(&mut self.controller_pub, ControllerEvent::ClearPeer);
+                                #[cfg(all(feature = "split", feature = "_ble"))]
+                                crate::split::ble::central::PAIRING_ARMED.signal(());
+                                #[cfg(all(feature = "split", feature = "_ble"))]
+                                crate::split::ble::central::CLEAR_PEER_REQUEST.signal(());
+                                #[cfg(all(feature = "split", feature = "_ble"))]
+                                crate::split::ble::peripheral::CLEAR_PEER_REQUEST.signal(());
                                 info!("Clear peer");
                             }
                             Either::Second(e) => {

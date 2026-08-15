@@ -1361,6 +1361,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mejiro-core"
+version = "0.1.0"
+dependencies = [
+ "heapless 0.8.0",
+]
+
+[[package]]
+name = "mejiro-rmk"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "mejiro-core",
+ "rmk",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,8 +1863,9 @@ dependencies = [
  "embassy-nrf",
  "embassy-time",
  "embassy-usb-driver",
- "heapless 0.8.0",
  "json",
+ "mejiro-core",
+ "mejiro-rmk",
  "nrf-mpsl",
  "nrf-sdc",
  "panic-probe",

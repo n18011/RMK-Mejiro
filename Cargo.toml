@@ -1,3 +1,8 @@
+[workspace]
+members = [".", "crates/mejiro-core", "crates/mejiro-rmk"]
+default-members = [".", "crates/mejiro-core", "crates/mejiro-rmk"]
+resolver = "2"
+
 [package]
 name = "rmk-mejiro"
 version = "0.1.0"
@@ -10,9 +15,9 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-heapless = "0.8"
+mejiro-core = { path = "crates/mejiro-core" }
+mejiro-rmk = { path = "crates/mejiro-rmk" }
 rmk = { version = "=0.8.2", default-features = false, features = [
-    "defmt",
     "storage",
     "vial",
     "vial_lock",
@@ -22,6 +27,7 @@ rmk = { version = "=0.8.2", default-features = false, features = [
 
 [target.'cfg(target_arch = "arm")'.dependencies]
 rmk = { version = "=0.8.2", features = [
+    "defmt",
     "nrf52840_ble",
     "adafruit_bl",
 ] }

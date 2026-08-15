@@ -1,201 +1,19 @@
-//! Pure-Rust Mejiro chord handling.
-//!
-//! The QMK implementation receives a set of Gemini/Mejiro keys, serialises
-//! the set in a stable left-to-right order, and then turns the stroke into
-//! host-side key presses.  This module keeps that boundary free of RMK and
-//! Embassy types so it can be tested on the host and reused by the firmware
-//! controller.
+//! Mejiro language tables and stateful transformation pipeline.
 
-use heapless::{String, Vec};
+use heapless::String;
 
+use crate::mejiro::{KeyAction, OutputError, StrokeResult, Text, TextOperation, MAX_CHORD_ID};
+use crate::mejiro_output::text_operations;
 use crate::mejiro_verbs::{VerbType, VERB_DICTIONARY};
 
-pub const MAX_CHORD_ID: usize = 64;
-pub const MAX_OUTPUT: usize = 128;
-
-pub type Text = String<MAX_OUTPUT>;
-
-const LEFT_LABELS: [&str; 12] = ["#", "S", "T", "K", "N", "Y", "I", "A", "U", "n", "t", "k"];
-const RIGHT_LABELS: [&str; 12] = ["S", "T", "K", "N", "Y", "I", "A", "U", "n", "t", "k", "*"];
-
-/// The 24 physical keys used by the Mejiro/Gemini layer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum MejiroKey {
-    LeftHash = 0,
-    LeftS = 1,
-    LeftT = 2,
-    LeftK = 3,
-    LeftN = 4,
-    LeftY = 5,
-    LeftI = 6,
-    LeftA = 7,
-    LeftU = 8,
-    LeftNStroke = 9,
-    LeftTStroke = 10,
-    LeftKStroke = 11,
-    RightS = 12,
-    RightT = 13,
-    RightK = 14,
-    RightN = 15,
-    RightY = 16,
-    RightI = 17,
-    RightA = 18,
-    RightU = 19,
-    RightNStroke = 20,
-    RightTStroke = 21,
-    RightKStroke = 22,
-    RightStar = 23,
-}
-
-impl MejiroKey {
-    pub const fn bit(self) -> u32 {
-        1u32 << self as u8
-    }
-
-    pub const fn from_index(index: u8) -> Option<Self> {
-        Some(match index {
-            0 => Self::LeftHash,
-            1 => Self::LeftS,
-            2 => Self::LeftT,
-            3 => Self::LeftK,
-            4 => Self::LeftN,
-            5 => Self::LeftY,
-            6 => Self::LeftI,
-            7 => Self::LeftA,
-            8 => Self::LeftU,
-            9 => Self::LeftNStroke,
-            10 => Self::LeftTStroke,
-            11 => Self::LeftKStroke,
-            12 => Self::RightS,
-            13 => Self::RightT,
-            14 => Self::RightK,
-            15 => Self::RightN,
-            16 => Self::RightY,
-            17 => Self::RightI,
-            18 => Self::RightA,
-            19 => Self::RightU,
-            20 => Self::RightNStroke,
-            21 => Self::RightTStroke,
-            22 => Self::RightKStroke,
-            23 => Self::RightStar,
-            _ => return None,
-        })
-    }
-}
-
-/// A de-duplicated set of currently participating Mejiro keys.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Chord {
-    bits: u32,
-}
-
-impl Chord {
-    pub const fn new() -> Self {
-        Self { bits: 0 }
-    }
-
-    pub fn press(&mut self, key: MejiroKey) {
-        self.bits |= key.bit();
-    }
-
-    pub fn release(&mut self, key: MejiroKey) {
-        self.bits &= !key.bit();
-    }
-
-    pub const fn is_empty(self) -> bool {
-        self.bits == 0
-    }
-
-    pub const fn contains(self, key: MejiroKey) -> bool {
-        self.bits & key.bit() != 0
-    }
-
-    pub const fn bits(self) -> u32 {
-        self.bits
-    }
-
-    /// Return the canonical Mejiro ID: left hand, separator, right hand.
-    pub fn id(self) -> String<MAX_CHORD_ID> {
-        let mut id = String::new();
-        let left = self.bits & 0x0fff != 0;
-        let right = self.bits & 0xfff000 != 0;
-
-        for (index, label) in LEFT_LABELS.iter().enumerate() {
-            if self.bits & (1u32 << index) != 0 {
-                let _ = id.push_str(label);
-            }
-        }
-
-        if left || right {
-            let _ = id.push('-');
-        }
-
-        for (index, label) in RIGHT_LABELS.iter().enumerate() {
-            if self.bits & (1u32 << (index + 12)) != 0 {
-                let _ = id.push_str(label);
-            }
-        }
-
-        id
-    }
-}
-
-/// Actions that are sent as a single RMK key instead of text.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum KeyAction {
-    Backspace,
-    Delete,
-    Escape,
-    Left,
-    Down,
-    Up,
-    Right,
-    Home,
-    End,
-    ShiftLeft,
-    ShiftDown,
-    ShiftUp,
-    ShiftRight,
-    ShiftHome,
-    ShiftEnd,
-    ShiftEnter,
-    CtrlEnter,
-    Enter,
-    Space,
-    Tab,
-    Language1,
-    Language2,
-}
-
-/// Result of committing one Mejiro chord.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StrokeResult {
-    Text { text: Text, kana_length: u8 },
-    Key(KeyAction),
-    Repeat,
-    Undo,
-    Unsupported,
-}
-
-impl StrokeResult {
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Self::Text { text, .. } => Some(text.as_str()),
-            _ => None,
-        }
-    }
-
-    pub const fn is_supported(&self) -> bool {
-        !matches!(self, Self::Unsupported)
-    }
-}
+const MAX_KANA: usize = 512;
+type KanaText = String<MAX_KANA>;
 
 #[derive(Clone, Debug)]
-struct TransformState {
-    last_vowel: String<16>,
-    pending_tsu: bool,
-    previous_particle: String<16>,
+pub(crate) struct TransformState {
+    pub(crate) last_vowel: String<16>,
+    pub(crate) pending_tsu: bool,
+    pub(crate) previous_particle: String<16>,
 }
 
 impl Default for TransformState {
@@ -206,120 +24,6 @@ impl Default for TransformState {
             last_vowel,
             pending_tsu: false,
             previous_particle: String::new(),
-        }
-    }
-}
-
-/// Stateful first-up chord accumulator used by the firmware controller.
-#[derive(Clone, Debug)]
-pub struct MejiroSession {
-    chord: Chord,
-    held: Chord,
-    down_count: u8,
-    previous_down_count: u8,
-    chord_active: bool,
-    chord_has_new_press: bool,
-    first_up: bool,
-    transform: TransformState,
-    history: Vec<Text, 20>,
-}
-
-impl MejiroSession {
-    pub fn new(first_up: bool) -> Self {
-        Self {
-            chord: Chord::new(),
-            held: Chord::new(),
-            down_count: 0,
-            previous_down_count: 0,
-            chord_active: false,
-            chord_has_new_press: false,
-            first_up,
-            transform: TransformState::default(),
-            history: Vec::new(),
-        }
-    }
-
-    pub fn press(&mut self, key: MejiroKey) -> Option<StrokeResult> {
-        self.held.press(key);
-        self.down_count = self.down_count.saturating_add(1);
-
-        if self.down_count > self.previous_down_count {
-            self.chord_active = true;
-            self.chord.press(key);
-            self.chord_has_new_press = true;
-        }
-        self.previous_down_count = self.down_count;
-        None
-    }
-
-    pub fn release(&mut self, key: MejiroKey) -> Option<StrokeResult> {
-        self.held.release(key);
-        self.down_count = self.down_count.saturating_sub(1);
-
-        if self.first_up && !self.chord_has_new_press {
-            self.reset_chord();
-            self.seed_from_held();
-        }
-
-        let should_commit = if self.first_up {
-            self.chord_has_new_press && self.down_count < self.previous_down_count
-        } else {
-            self.down_count == 0 && self.previous_down_count > 0
-        };
-
-        let result = if self.chord_active && should_commit && !self.chord.is_empty() {
-            let id = self.chord.id();
-            let result = transform_with_state(id.as_str(), &mut self.transform);
-            if let StrokeResult::Text { text, .. } = &result {
-                if !text.is_empty() {
-                    let _ = self.history.push(text.clone());
-                }
-            }
-            self.reset_chord();
-            if self.first_up && self.down_count > 0 {
-                self.seed_from_held();
-            }
-            Some(result)
-        } else {
-            None
-        };
-
-        self.previous_down_count = self.down_count;
-        result
-    }
-
-    pub fn reset(&mut self) {
-        self.held = Chord::new();
-        self.down_count = 0;
-        self.previous_down_count = 0;
-        self.reset_chord();
-        self.transform = TransformState::default();
-        self.history.clear();
-    }
-
-    pub fn history_len(&self) -> usize {
-        self.history.len()
-    }
-
-    pub fn last_text(&self) -> Option<&str> {
-        self.history.last().map(|text| text.as_str())
-    }
-
-    pub fn undo_last(&mut self) -> Option<usize> {
-        self.history.pop().map(|text| text.len())
-    }
-
-    fn reset_chord(&mut self) {
-        self.chord = Chord::new();
-        self.chord_active = false;
-        self.chord_has_new_press = false;
-    }
-
-    fn seed_from_held(&mut self) {
-        if !self.held.is_empty() {
-            self.chord = self.held;
-            self.chord_active = true;
-            self.chord_has_new_press = false;
         }
     }
 }
@@ -717,12 +421,15 @@ const KANA_ROMAJI: &[(&str, &str)] = &[
     ("ふゃ", "fya"),
     ("ふゅ", "fyu"),
     ("ふょ", "fyo"),
+    ("くぁ", "kwa"),
+    ("くぃ", "kwi"),
+    ("くぇ", "kwe"),
+    ("くぉ", "kwo"),
     ("いぇ", "ye"),
     ("しぇ", "she"),
     ("じぇ", "je"),
     ("ちぇ", "che"),
     ("てぃ", "thi"),
-    ("てゅ", "tyu"),
     ("でぃ", "dhi"),
     ("でゅ", "dhu"),
     ("とぅ", "twu"),
@@ -740,41 +447,53 @@ const KANA_ROMAJI: &[(&str, &str)] = &[
     ("ー", "-"),
     ("、", ","),
     ("。", "."),
+    ("!", "!"),
+    ("?", "?"),
 ];
 
 /// Convert hiragana to the same Hepburn-ish ASCII sequence used by QMK.
-pub fn kana_to_romaji(input: &str) -> Text {
+pub fn kana_to_romaji(input: &str) -> Result<Text, OutputError> {
     let mut output = Text::new();
     let mut rest = input;
 
-    while !rest.is_empty() && output.len() < MAX_OUTPUT.saturating_sub(10) {
+    while !rest.is_empty() {
         if rest.starts_with('っ') {
             let after = &rest['っ'.len_utf8()..];
             if let Some((_, roma)) = longest_kana_match(after) {
                 let first = roma.as_bytes().first().copied().unwrap_or_default();
                 if matches!(first, b'a' | b'e' | b'i' | b'o' | b'u') {
-                    let _ = output.push_str("xtu");
+                    output
+                        .push_str("xtu")
+                        .map_err(|_| OutputError::CapacityExceeded)?;
                 } else if first.is_ascii_alphabetic() {
-                    let _ = output.push(first as char);
+                    output
+                        .push(first as char)
+                        .map_err(|_| OutputError::CapacityExceeded)?;
                 } else {
-                    let _ = output.push_str("xtu");
+                    output
+                        .push_str("xtu")
+                        .map_err(|_| OutputError::CapacityExceeded)?;
                 }
             } else {
-                let _ = output.push_str("xtu");
+                output
+                    .push_str("xtu")
+                    .map_err(|_| OutputError::CapacityExceeded)?;
             }
             rest = after;
             continue;
         }
 
         if let Some((kana, roma)) = longest_kana_match(rest) {
-            let _ = output.push_str(roma);
+            output
+                .push_str(roma)
+                .map_err(|_| OutputError::CapacityExceeded)?;
             rest = &rest[kana.len()..];
             continue;
         }
 
         if let Some(ch) = rest.chars().next() {
             if ch.is_ascii() {
-                let _ = output.push(ch);
+                output.push(ch).map_err(|_| OutputError::CapacityExceeded)?;
             }
             rest = &rest[ch.len_utf8()..];
         } else {
@@ -782,7 +501,7 @@ pub fn kana_to_romaji(input: &str) -> Text {
         }
     }
 
-    output
+    Ok(output)
 }
 
 fn longest_kana_match(input: &str) -> Option<(&'static str, &'static str)> {
@@ -800,7 +519,11 @@ pub fn transform(id: &str) -> StrokeResult {
     transform_with_state(id, &mut state)
 }
 
-fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
+pub(crate) fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
+    if id == "STKNYIAUntk#-STKNYIAUntk*" {
+        return StrokeResult::Noop;
+    }
+
     match id {
         "#-" => return StrokeResult::Repeat,
         "-U" => {
@@ -875,16 +598,23 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
         _ => {}
     }
 
-    if id.contains('#') && !id.ends_with('*') {
+    let has_asterisk = split_id(id).1.ends_with('*');
+    let is_user_abbreviation = has_asterisk && USER_ABBREVIATIONS.iter().any(|(key, _)| *key == id);
+
+    // QMK treats `#` as a repeat modifier for every non-user-abbreviation
+    // stroke, including starred verb strokes.  The explicit `#...*` user
+    // abbreviations are the sole exception.
+    if id.contains('#') && !is_user_abbreviation {
         let mut normalized = String::<MAX_CHORD_ID>::new();
         for ch in id.chars().filter(|ch| *ch != '#') {
-            let _ = normalized.push(ch);
+            if normalized.push(ch).is_err() {
+                return StrokeResult::Truncated;
+            }
         }
         let result = transform_with_state(normalized.as_str(), state);
         return repeat_result(result);
     }
 
-    let has_asterisk = id.ends_with('*');
     let stroke = id.strip_suffix('*').unwrap_or(id);
 
     if let Some((_, output)) = USER_ABBREVIATIONS.iter().find(|(key, _)| *key == id) {
@@ -900,13 +630,63 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
         }
     } else {
         let (left_raw, right_raw) = split_id(stroke);
+        let left_part = parse_part(left_raw);
+        let right_part = parse_part(right_raw);
+        let mut left_stroke = String::<32>::new();
+        let mut right_stroke = String::<32>::new();
+        let _ = left_stroke.push_str(left_part.conso.as_str());
+        let _ = left_stroke.push_str(left_part.vowel.as_str());
+        let _ = right_stroke.push_str(right_part.conso.as_str());
+        let _ = right_stroke.push_str(right_part.vowel.as_str());
+
         if let (Some(left_output), Some(right_output)) = (
-            abbreviation_side(ABSTRACT_LEFT, left_raw),
-            abbreviation_side(ABSTRACT_RIGHT, right_raw),
+            abbreviation_side(ABSTRACT_LEFT, left_stroke.as_str()),
+            abbreviation_side(ABSTRACT_RIGHT, right_stroke.as_str()),
         ) {
-            let mut output = Text::new();
-            let _ = output.push_str(left_output);
-            let _ = output.push_str(right_output);
+            let mut pair = KanaText::new();
+            let _ = pair.push_str(left_output);
+            let _ = pair.push_str(right_output);
+            let mut output = replace_nofuu_with_nnafuu(pair.as_str());
+
+            if !left_part.particle.is_empty() || !right_part.particle.is_empty() {
+                let mut particle = KanaText::new();
+                match (left_part.particle.as_str(), right_part.particle.as_str()) {
+                    ("n", "") => {
+                        let _ = particle.push_str("である");
+                    }
+                    ("", "n") => {
+                        let _ = particle.push_str("だ");
+                    }
+                    ("n", "n") => {
+                        let _ = particle.push_str("だった");
+                    }
+                    ("", "nt") => {
+                        let _ = particle.push('.');
+                    }
+                    ("", "nk") => {
+                        let _ = particle.push('、');
+                    }
+                    ("n", "nt") => {
+                        let _ = particle.push('?');
+                    }
+                    ("n", "nk") => {
+                        let _ = particle.push('!');
+                    }
+                    _ => transform_particles(
+                        left_part.particle.as_str(),
+                        right_part.particle.as_str(),
+                        &mut particle,
+                        &mut state.previous_particle,
+                    ),
+                }
+                if !matches!(
+                    (left_part.particle.as_str(), right_part.particle.as_str()),
+                    ("", "nt") | ("", "nk") | ("n", "nt") | ("n", "nk")
+                ) {
+                    replace_he_with_ka(&mut particle);
+                }
+                let _ = output.push_str(particle.as_str());
+            }
             return text_from_kana(output);
         }
     }
@@ -929,7 +709,7 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
     }
 
     if !left_has_sound && !right_has_sound && (left_has_particle || right_has_particle) {
-        let mut kana = Text::new();
+        let mut kana = KanaText::new();
         transform_particles(
             left_part.particle.as_str(),
             right_part.particle.as_str(),
@@ -958,19 +738,24 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
         state.last_vowel = left_vowel.clone();
     }
 
+    let left_diphthong =
+        has_english_or_minor_diphthong(left_vowel.as_str(), left_part.particle.as_str());
+    let right_diphthong =
+        has_english_or_minor_diphthong(right_vowel.as_str(), right_part.particle.as_str());
     let left_final_tsu = left_has_sound
         && left_part.particle.as_str() == "tk"
         && !right_has_sound
-        && !right_has_particle;
+        && !right_has_particle
+        && !left_diphthong;
     let right_final_tsu =
-        right_has_sound && right_part.particle.as_str() == "tk" && !left_has_particle;
+        right_has_sound && right_part.particle.as_str() == "tk" && !right_diphthong;
     let left_plus_particle = left_has_sound && !right_has_sound && right_has_particle;
     let ntk_n = left_has_sound
         && left_part.particle.as_str() == "ntk"
         && !right_has_sound
         && right_part.particle.as_str() == "n";
 
-    let mut kana = Text::new();
+    let mut kana = KanaText::new();
     if state.pending_tsu {
         let _ = kana.push_str("っ");
         state.pending_tsu = false;
@@ -987,13 +772,20 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
     }
 
     if left_plus_particle {
-        let mut particles = Text::new();
-        transform_particles(
-            left_part.particle.as_str(),
-            right_part.particle.as_str(),
-            &mut particles,
-            &mut state.previous_particle,
-        );
+        let mut particles = KanaText::new();
+        if let Some(command) =
+            particle_command(left_part.particle.as_str(), right_part.particle.as_str())
+        {
+            let _ = particles.push_str(command);
+        } else {
+            transform_particles(
+                left_part.particle.as_str(),
+                right_part.particle.as_str(),
+                &mut particles,
+                &mut state.previous_particle,
+            );
+            replace_he_with_ka(&mut particles);
+        }
         let _ = kana.push_str(particles.as_str());
     }
 
@@ -1045,7 +837,9 @@ fn transform_with_state(id: &str, state: &mut TransformState) -> StrokeResult {
 
 fn text_result(value: &str) -> StrokeResult {
     let mut text = Text::new();
-    let _ = text.push_str(value);
+    if text.push_str(value).is_err() {
+        return StrokeResult::Truncated;
+    }
     StrokeResult::Text {
         text,
         kana_length: 0,
@@ -1062,87 +856,420 @@ fn transform_verb(stroke: &str, has_asterisk: bool) -> Option<StrokeResult> {
     let _ = base.push('-');
     let _ = base.push_str(right.conso.as_str());
     let _ = base.push_str(right.vowel.as_str());
-    let form = conjugation_form(right.particle.as_str());
 
-    let mut output = Text::new();
+    let left_kana = convert_to_kana(left.conso.as_str(), left.vowel.as_str(), "", false);
+    let right_kana = convert_to_kana(right.conso.as_str(), right.vowel.as_str(), "", false);
+    let left_syllable = convert_to_syllable(
+        left.conso.as_str(),
+        left.vowel.as_str(),
+        left.particle.as_str(),
+    );
+
+    let left_aux = left_auxiliary(left.particle.as_str());
+    let right_aux = right_auxiliary(right.particle.as_str());
+    let (form, suffix) = if let Some(aux) = left_aux {
+        (aux.form, "")
+    } else {
+        conjugation_info(left.particle.as_str(), right.particle.as_str())
+    };
+
+    if right.conso.as_str() == "TN" && right.vowel.is_empty() {
+        if let Some(desu) = desu_conjugate(right.particle.as_str()) {
+            let mut output = left_syllable.clone();
+            let _ = output.push_str(desu);
+            return Some(text_from_kana(output));
+        }
+    }
+
     if stroke.contains('-') {
         match base.as_str() {
             "I-K" => {
+                let mut output = KanaText::new();
                 let _ = output.push_str(IKU_FORMS[form]);
-                let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
                 return Some(text_from_kana(output));
             }
-            "A-" => {
+            "A-" if has_asterisk => {
+                let mut output = KanaText::new();
                 let _ = output.push_str(ARU_FORMS[form]);
-                let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
+                if output.as_str() == "ず" {
+                    output.clear();
+                    let _ = output.push_str("あらず");
+                }
                 return Some(text_from_kana(output));
             }
-            "K-" => {
+            "K-" if has_asterisk => {
+                let mut output = KanaText::new();
                 let _ = output.push_str(KAHEN_FORMS[form]);
-                let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
                 return Some(text_from_kana(output));
             }
             _ => {}
         }
     }
 
-    if has_asterisk {
-        if let Some(entry) = VERB_DICTIONARY
-            .iter()
-            .find(|entry| entry.stroke == base.as_str())
+    let left_has_sound = !left.conso.is_empty() || !left.vowel.is_empty();
+    let right_has_sound = !right.conso.is_empty() || !right.vowel.is_empty();
+
+    // These inference branches are intentionally available without `*`, just
+    // as in the QMK implementation. They must run before the right-only
+    // stroke is rejected by the general Mejiro transform.
+    if right_has_sound && !right.conso.is_empty() && right.vowel.is_empty() {
+        if let Some(row) =
+            kana_row(right_kana.as_str()).or_else(|| consonant_row(right.conso.as_str()))
         {
-            let _ = output.push_str(entry.stem);
-            let ending = match entry.kind {
-                VerbType::Godan => godan_ending(entry.row, form),
-                VerbType::Kami => kami_ending(entry.row, form),
-                VerbType::Simo => simo_ending(entry.row, form),
-                VerbType::Kahen => KAHEN_FORMS[form],
-                VerbType::Special => "",
-            };
-            let _ = output.push_str(ending);
-            let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+            if matches!(row, 'k' | 'g' | 's' | 't' | 'n' | 'b' | 'm' | 'r' | 'w') {
+                let mut output = left_kana.clone();
+                let _ = output.push_str(godan_ending(row, form));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
+                if form == CONJ_TE_TA && matches!(row, 'g' | 'n' | 'b' | 'm') {
+                    apply_godan_te_ta_voicing(&mut output, left_kana.len());
+                }
+                return Some(text_from_kana(output));
+            }
+        }
+    }
+
+    if !left_has_sound && left.particle.is_empty() && right.vowel.as_str() == "I" {
+        if let Some(row) = kana_row(right_kana.as_str()) {
+            if is_kami_row(row) {
+                let mut output = KanaText::new();
+                let _ = output.push_str(kami_ending(row, form));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
+                return Some(text_from_kana(output));
+            }
+        }
+    }
+
+    if !left_has_sound && left.particle.is_empty() && right.vowel.as_str() == "IA" {
+        if let Some(row) = kana_row(right_kana.as_str()) {
+            let mut output = KanaText::new();
+            let _ = output.push_str(simo_ending(row, form));
+            finish_verb(&mut output, left_aux, right_aux, suffix);
             return Some(text_from_kana(output));
         }
     }
 
-    let left_has_sound = !left.conso.is_empty() || !left.vowel.is_empty();
-    let right_has_sound = !right.conso.is_empty() || !right.vowel.is_empty();
-    if !left_has_sound || !right_has_sound {
+    if !has_asterisk {
         return None;
     }
 
-    let left_kana = convert_to_kana(left.conso.as_str(), left.vowel.as_str(), "", false);
-    let right_kana = convert_to_kana(right.conso.as_str(), right.vowel.as_str(), "", false);
-
-    if !left_has_sound && left.particle.is_empty() && right.vowel.as_str() == "I" {
-        let row = kana_row(right_kana.as_str())?;
-        let _ = output.push_str(kami_ending(row, form));
-        let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+    if right.conso.is_empty() && right.vowel.as_str() == "IU" {
+        let mut output = left_kana.clone();
+        let _ = output.push_str("い");
+        let _ = output.push_str(godan_ending('w', form));
+        let _ = output.push_str(suffix);
         return Some(text_from_kana(output));
     }
 
-    if !left_has_sound && left.particle.is_empty() && right.vowel.as_str() == "IA" {
-        let row = kana_row(right_kana.as_str())?;
-        let _ = output.push_str(simo_ending(row, form));
-        let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+    if let Some(entry) = VERB_DICTIONARY
+        .iter()
+        .find(|entry| entry.stroke == base.as_str())
+    {
+        let mut output = KanaText::new();
+        match entry.kind {
+            VerbType::Special => match entry.stroke {
+                "I-K" => {
+                    let _ = output.push_str(IKU_FORMS[form]);
+                }
+                "A-" => {
+                    let _ = output.push_str(ARU_FORMS[form]);
+                }
+                _ => return None,
+            },
+            VerbType::Godan => {
+                let _ = output.push_str(entry.stem);
+                let _ = output.push_str(godan_ending(entry.row, form));
+            }
+            VerbType::Kami => {
+                let _ = output.push_str(entry.stem);
+                let _ = output.push_str(kami_ending(entry.row, form));
+            }
+            VerbType::Simo => {
+                let _ = output.push_str(entry.stem);
+                let _ = output.push_str(simo_ending(entry.row, form));
+            }
+            VerbType::Kahen => {
+                let _ = output.push_str(entry.stem);
+                let _ = output.push_str(KAHEN_FORMS[form]);
+            }
+        }
+        finish_verb(&mut output, left_aux, right_aux, suffix);
+        if form == CONJ_TE_TA
+            && matches!(entry.kind, VerbType::Godan)
+            && matches!(entry.row, 'g' | 'n' | 'b' | 'm')
+        {
+            apply_godan_te_ta_voicing(&mut output, entry.stem.len());
+        }
+        if matches!(entry.kind, VerbType::Godan) {
+            apply_kudasari_correction(&mut output);
+        }
+        if entry.kind == VerbType::Special && entry.stroke == "A-" && output.as_str() == "ず" {
+            output.clear();
+            let _ = output.push_str("あらず");
+        }
         return Some(text_from_kana(output));
     }
 
-    if right.vowel.is_empty() && !right.conso.is_empty() {
-        let row = kana_row(right_kana.as_str()).or_else(|| consonant_row(right.conso.as_str()))?;
-        let _ = output.push_str(left_kana.as_str());
-        let _ = output.push_str(godan_ending(row, form));
-        let _ = output.push_str(conjugation_suffix(right.particle.as_str()));
+    // Asterisked strokes not in the dictionary follow the same fallback
+    // rules as QMK: sa-hen for a missing right syllable, then inferred rows,
+    // and finally the generic r-row fallback.
+    if right_kana.is_empty() {
+        let mut output = left_kana.clone();
+        let _ = output.push_str(sahen_ending(form));
+        finish_verb(&mut output, left_aux, right_aux, suffix);
+        apply_sahen_negative_zu(&mut output, form, suffix);
+        return Some(text_from_kana(output));
+    }
+
+    if !right.conso.is_empty() && right.vowel.is_empty() {
+        if let Some(row) =
+            kana_row(right_kana.as_str()).or_else(|| consonant_row(right.conso.as_str()))
+        {
+            if matches!(row, 'k' | 'g' | 's' | 't' | 'n' | 'b' | 'm' | 'r' | 'w') {
+                let mut output = left_kana.clone();
+                let _ = output.push_str(godan_ending(row, form));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
+                if form == CONJ_TE_TA && matches!(row, 'g' | 'n' | 'b' | 'm') {
+                    apply_godan_te_ta_voicing(&mut output, left_kana.len());
+                }
+                return Some(text_from_kana(output));
+            }
+        }
+    }
+
+    if right.vowel.as_str() == "I" {
+        if let Some(row) = kana_row(right_kana.as_str()) {
+            if is_kami_row(row) {
+                let mut output = left_kana.clone();
+                let _ = output.push_str(kami_ending(row, form));
+                finish_verb(&mut output, left_aux, right_aux, suffix);
+                return Some(text_from_kana(output));
+            }
+        }
+    }
+
+    if right.vowel.as_str() == "IA" {
+        if let Some(row) = kana_row(right_kana.as_str()) {
+            let mut output = left_kana.clone();
+            let _ = output.push_str(simo_ending(row, form));
+            finish_verb(&mut output, left_aux, right_aux, suffix);
+            return Some(text_from_kana(output));
+        }
+    }
+
+    if right_has_sound {
+        let mut output = left_kana.clone();
+        let _ = output.push_str(right_kana.as_str());
+        let _ = output.push_str(godan_ending('r', form));
+        finish_verb(&mut output, left_aux, right_aux, suffix);
+        replace_first(&mut output, "ござり", "ござい");
+        replace_first(&mut output, "なさり", "なさい");
         return Some(text_from_kana(output));
     }
 
     None
 }
 
+fn convert_to_syllable(conso: &str, vowel: &str, particle: &str) -> KanaText {
+    convert_to_kana(conso, vowel, particle, true)
+}
+
+fn is_kami_row(row: char) -> bool {
+    matches!(
+        row,
+        'k' | 'g' | 's' | 'z' | 't' | 'n' | 'b' | 'm' | 'r' | 'w'
+    )
+}
+
+#[derive(Clone, Copy)]
+struct LeftAuxiliary {
+    form: usize,
+    stem: &'static str,
+    kind: VerbType,
+    row: char,
+}
+
+fn left_auxiliary(particle: &str) -> Option<LeftAuxiliary> {
+    Some(match particle {
+        "n" => LeftAuxiliary {
+            form: CONJ_TE_TA,
+            stem: "て",
+            kind: VerbType::Kami,
+            row: 'w',
+        },
+        "t" => LeftAuxiliary {
+            form: CONJ_SHIEKI,
+            stem: "",
+            kind: VerbType::Simo,
+            row: 's',
+        },
+        "k" => LeftAuxiliary {
+            form: CONJ_UKEMI,
+            stem: "",
+            kind: VerbType::Simo,
+            row: 'r',
+        },
+        "nk" => LeftAuxiliary {
+            form: CONJ_TE_TA,
+            stem: "てしま",
+            kind: VerbType::Godan,
+            row: 'w',
+        },
+        _ => return None,
+    })
+}
+
+fn right_auxiliary(particle: &str) -> Option<(usize, &'static str)> {
+    Some(match particle {
+        "" => (CONJ_JISHO, ""),
+        "n" => (CONJ_NAI, "ない"),
+        "t" => (CONJ_TE_TA, "た"),
+        "k" => (CONJ_MASU, "ます"),
+        "nt" => (CONJ_NAI, "なかった"),
+        "nk" => (CONJ_MASU, "ません"),
+        "tk" => (CONJ_MASU, "ました"),
+        "ntk" => (CONJ_TE_TA, "て"),
+        _ => return None,
+    })
+}
+
+fn desu_conjugate(particle: &str) -> Option<&'static str> {
+    Some(match particle {
+        "" => "です",
+        "n" => "ですね",
+        "t" => "でした",
+        "k" => "でしょう",
+        "nt" => "です.",
+        "nk" => "ですが,",
+        "tk" => "ですか?",
+        "ntk" => "でして,",
+        _ => return None,
+    })
+}
+
+fn conjugation_info(left_particle: &str, right_particle: &str) -> (usize, &'static str) {
+    match (left_particle, right_particle) {
+        ("nt", "") => (CONJ_MASU, "やすい"),
+        ("nt", "k") => (CONJ_MASU, "やすく"),
+        ("nt", "n") => (CONJ_MASU, "ずらい"),
+        ("nt", "nk") => (CONJ_MASU, "ずらく"),
+        ("nt", "t") => (CONJ_MASU, "たい"),
+        ("nt", "tk") => (CONJ_MASU, "たく"),
+        ("nt", "nt") => (CONJ_TE_TA, "てほしい"),
+        ("nt", "ntk") => (CONJ_TE_TA, "てください"),
+        ("tk", "") => (CONJ_KANOU, "る"),
+        ("tk", "n") => (CONJ_KANOU, "ない"),
+        ("tk", "t") => (CONJ_KANOU, "た"),
+        ("tk", "k") => (CONJ_KANOU, "ます"),
+        ("tk", "nt") => (CONJ_KANOU, "なかった"),
+        ("tk", "nk") => (CONJ_KANOU, "ません"),
+        ("tk", "tk") => (CONJ_KANOU, "ました"),
+        ("tk", "ntk") => (CONJ_KANOU, "て"),
+        ("ntk", "") => (CONJ_MASU, ""),
+        ("ntk", "n") => (CONJ_NAI, "ず"),
+        ("ntk", "t") => (CONJ_KATEI, "ば"),
+        ("ntk", "k") => (CONJ_MASU, "ましょう"),
+        ("ntk", "nt") => (CONJ_NAI, "なければ"),
+        ("ntk", "nk") => (CONJ_NAI, "なく"),
+        ("ntk", "tk") => (CONJ_MASU, "ながら"),
+        ("ntk", "ntk") => (CONJ_IKOU, ""),
+        (_, _) => right_auxiliary(right_particle).unwrap_or((CONJ_JISHO, "")),
+    }
+}
+
+fn finish_verb(
+    output: &mut KanaText,
+    left_aux: Option<LeftAuxiliary>,
+    right_aux: Option<(usize, &'static str)>,
+    suffix: &str,
+) {
+    if let Some(aux) = left_aux {
+        let _ = output.push_str(aux.stem);
+        let aux_form = right_aux.map(|(form, _)| form).unwrap_or(CONJ_JISHO);
+        let ending = match aux.kind {
+            VerbType::Godan => godan_ending(aux.row, aux_form),
+            VerbType::Kami => kami_ending(aux.row, aux_form),
+            VerbType::Simo => simo_ending(aux.row, aux_form),
+            VerbType::Kahen | VerbType::Special => "",
+        };
+        let _ = output.push_str(ending);
+        if let Some((_, right_suffix)) = right_aux {
+            let _ = output.push_str(right_suffix);
+        }
+    } else {
+        let _ = output.push_str(suffix);
+    }
+}
+
+fn sahen_ending(form: usize) -> &'static str {
+    [
+        "し",
+        "さ",
+        "さ",
+        "し",
+        "する",
+        "し",
+        "しよう",
+        "すれ",
+        "でき",
+        "しろ",
+    ][form.min(9)]
+}
+
+fn replace_first(output: &mut KanaText, from: &str, to: &str) {
+    let source = output.as_str();
+    let Some(index) = source.find(from) else {
+        return;
+    };
+    let mut replaced = KanaText::new();
+    let _ = replaced.push_str(&source[..index]);
+    let _ = replaced.push_str(to);
+    let _ = replaced.push_str(&source[index + from.len()..]);
+    *output = replaced;
+}
+
+fn replace_at(output: &mut KanaText, start: usize, from: &str, to: &str) {
+    let source = output.as_str();
+    let Some(suffix) = source.get(start..) else {
+        return;
+    };
+    if !suffix.starts_with(from) {
+        return;
+    }
+    let mut replaced = KanaText::new();
+    let _ = replaced.push_str(&source[..start]);
+    let _ = replaced.push_str(to);
+    let _ = replaced.push_str(&suffix[from.len()..]);
+    *output = replaced;
+}
+
+fn apply_godan_te_ta_voicing(output: &mut KanaText, stem_len: usize) {
+    replace_at(output, stem_len, "んて", "んで");
+    replace_at(output, stem_len, "いて", "いで");
+    replace_at(output, stem_len, "んた", "んだ");
+    replace_at(output, stem_len, "いた", "いだ");
+}
+
+fn apply_sahen_negative_zu(output: &mut KanaText, form: usize, suffix: &str) {
+    if form == CONJ_NAI && suffix == "ず" && output.as_str().ends_with("しず") {
+        let len = output.len();
+        let mut replaced = KanaText::new();
+        let _ = replaced.push_str(&output.as_str()[..len - "しず".len()]);
+        let _ = replaced.push_str("せず");
+        *output = replaced;
+    }
+}
+
+fn apply_kudasari_correction(output: &mut KanaText) {
+    replace_first(output, "くださり", "ください");
+}
+
 const IKU_FORMS: [&str; 10] = [
     "いか",
-    "いかさ",
-    "いから",
+    "いか",
+    "いか",
     "いき",
     "いく",
     "いっ",
@@ -1176,90 +1303,58 @@ const KAHEN_FORMS: [&str; 10] = [
     "こい",
 ];
 
-fn conjugation_form(particle: &str) -> usize {
-    match particle {
-        "n" => 0,
-        "t" => 5,
-        "k" | "nk" | "tk" => 3,
-        "nt" => 0,
-        "ntk" => 5,
-        _ => 4,
-    }
-}
-
-fn conjugation_suffix(particle: &str) -> &'static str {
-    match particle {
-        "n" => "ない",
-        "t" => "た",
-        "k" => "ます",
-        "nt" => "なかった",
-        "nk" => "ません",
-        "tk" => "ました",
-        "ntk" => "て",
-        _ => "",
-    }
-}
+const CONJ_NAI: usize = 0;
+const CONJ_SHIEKI: usize = 1;
+const CONJ_UKEMI: usize = 2;
+const CONJ_MASU: usize = 3;
+const CONJ_JISHO: usize = 4;
+const CONJ_TE_TA: usize = 5;
+const CONJ_IKOU: usize = 6;
+const CONJ_KATEI: usize = 7;
+const CONJ_KANOU: usize = 8;
 
 fn godan_ending(row: char, form: usize) -> &'static str {
     const ENDINGS: &[(char, [&str; 10])] = &[
         (
             'k',
-            [
-                "か", "かさ", "から", "き", "く", "い", "こう", "け", "け", "け",
-            ],
+            ["か", "か", "か", "き", "く", "い", "こう", "け", "け", "け"],
         ),
         (
             'g',
-            [
-                "が", "がさ", "がら", "ぎ", "ぐ", "い", "ごう", "げ", "げ", "げ",
-            ],
+            ["が", "が", "が", "ぎ", "ぐ", "い", "ごう", "げ", "げ", "げ"],
         ),
         (
             's',
-            [
-                "さ", "ささ", "さら", "し", "す", "し", "そう", "せ", "せ", "せ",
-            ],
+            ["さ", "さ", "さ", "し", "す", "し", "そう", "せ", "せ", "せ"],
         ),
         (
             't',
-            [
-                "た", "たさ", "たら", "ち", "つ", "っ", "とう", "て", "て", "て",
-            ],
+            ["た", "た", "た", "ち", "つ", "っ", "とう", "て", "て", "て"],
         ),
         (
             'n',
-            [
-                "な", "なさ", "なら", "に", "ぬ", "ん", "のう", "ね", "ね", "ね",
-            ],
+            ["な", "な", "な", "に", "ぬ", "ん", "のう", "ね", "ね", "ね"],
         ),
         (
             'b',
-            [
-                "ば", "ばさ", "ばら", "び", "ぶ", "ん", "ぼう", "べ", "べ", "べ",
-            ],
+            ["ば", "ば", "ば", "び", "ぶ", "ん", "ぼう", "べ", "べ", "べ"],
         ),
         (
             'm',
-            [
-                "ま", "まさ", "まら", "み", "む", "ん", "もう", "め", "め", "め",
-            ],
+            ["ま", "ま", "ま", "み", "む", "ん", "もう", "め", "め", "め"],
         ),
         (
             'r',
-            [
-                "ら", "らさ", "ら", "り", "る", "っ", "ろう", "れ", "れ", "れ",
-            ],
+            ["ら", "ら", "ら", "り", "る", "っ", "ろう", "れ", "れ", "れ"],
         ),
         (
             'w',
-            [
-                "わ", "わさ", "わら", "い", "う", "っ", "おう", "え", "え", "え",
-            ],
+            ["わ", "わ", "わ", "い", "う", "っ", "おう", "え", "え", "え"],
         ),
     ];
     ENDINGS
         .iter()
-        .find(|(candidate, _)| *candidate == row)
+        .find(|(candidate, _)| *candidate == row || (row == 'z' && *candidate == 's'))
         .map(|(_, endings)| endings[form.min(9)])
         .unwrap_or("")
 }
@@ -1404,7 +1499,7 @@ fn kami_ending(row: char, form: usize) -> &'static str {
     ];
     ENDINGS
         .iter()
-        .find(|(candidate, _)| *candidate == row)
+        .find(|(candidate, _)| *candidate == row || (row == 's' && *candidate == 'z'))
         .map(|(_, endings)| endings[form.min(9)])
         .unwrap_or("")
 }
@@ -1612,7 +1707,7 @@ fn kana_row(kana: &str) -> Option<char> {
         ("ばびぶべぼ", 'b'),
         ("まみむめも", 'm'),
         ("らりるれろ", 'r'),
-        ("わを", 'w'),
+        ("わをあいうえお", 'w'),
     ]
     .iter()
     .find(|(row, _)| kana.chars().next().is_some_and(|ch| row.contains(ch)))
@@ -1641,37 +1736,75 @@ fn repeat_result(result: StrokeResult) -> StrokeResult {
     match result {
         StrokeResult::Text { text, kana_length } => {
             let mut repeated = Text::new();
-            let _ = repeated.push_str(text.as_str());
-            let _ = repeated.push_str(text.as_str());
+            if repeated.push_str(text.as_str()).is_err()
+                || repeated.push_str(text.as_str()).is_err()
+            {
+                return StrokeResult::Truncated;
+            }
             StrokeResult::Text {
                 text: repeated,
                 kana_length: kana_length.saturating_mul(2),
             }
         }
+        StrokeResult::Key(action) => StrokeResult::RepeatKey(action),
         other => other,
     }
 }
 
 fn text_from_kana_str(value: &str) -> StrokeResult {
-    let mut kana = Text::new();
-    let _ = kana.push_str(value);
-    text_from_kana(kana)
+    text_from_kana(value)
 }
 
-fn text_from_kana(kana: Text) -> StrokeResult {
+fn text_from_kana<S: AsRef<str>>(kana: S) -> StrokeResult {
+    let kana = kana.as_ref();
     let kana_length = kana.chars().count().min(u8::MAX as usize) as u8;
-    let text = kana_to_romaji(kana.as_str());
-    StrokeResult::Text { text, kana_length }
+    match kana_to_romaji(kana) {
+        Ok(text) => StrokeResult::Text { text, kana_length },
+        Err(OutputError::CapacityExceeded) => StrokeResult::Truncated,
+    }
+}
+
+fn replace_nofuu_with_nnafuu(input: &str) -> KanaText {
+    let mut output = KanaText::new();
+    let mut rest = input;
+    while let Some(index) = rest.find("のふう") {
+        let _ = output.push_str(&rest[..index]);
+        let _ = output.push_str("んなふう");
+        rest = &rest[index + "のふう".len()..];
+    }
+    let _ = output.push_str(rest);
+    output
+}
+
+pub(crate) fn emitted_text_len(input: &str) -> usize {
+    text_operations(input)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|operation| match operation {
+            TextOperation::Text(text) => text.len(),
+            TextOperation::Left => 0,
+        })
+        .sum()
+}
+
+pub(crate) fn emitted_text_ends_with_space(input: &str) -> bool {
+    let mut last = None;
+    for operation in text_operations(input).unwrap_or_default() {
+        if let TextOperation::Text(text) = operation {
+            last = text.bytes().last().or(last);
+        }
+    }
+    last == Some(b' ')
 }
 
 #[derive(Clone, Debug, Default)]
-struct Part {
-    conso: String<16>,
-    vowel: String<16>,
-    particle: String<16>,
+pub(crate) struct Part {
+    pub(crate) conso: String<16>,
+    pub(crate) vowel: String<16>,
+    pub(crate) particle: String<16>,
 }
 
-fn split_id(id: &str) -> (&str, &str) {
+pub(crate) fn split_id(id: &str) -> (&str, &str) {
     id.split_once('-').unwrap_or((id, ""))
 }
 
@@ -1685,7 +1818,7 @@ fn abbreviation_side(
         .map(|(_, value)| *value)
 }
 
-fn parse_part(input: &str) -> Part {
+pub(crate) fn parse_part(input: &str) -> Part {
     let mut part = Part::default();
     let mut phase = 0u8;
     for ch in input.chars() {
@@ -1749,9 +1882,24 @@ fn diphthong_suffix(stroke: &str) -> &'static str {
         .unwrap_or("")
 }
 
-fn convert_to_kana(conso: &str, vowel: &str, particle: &str, include_extra: bool) -> Text {
-    let mut result = Text::new();
+fn has_english_or_minor_diphthong(vowel: &str, particle: &str) -> bool {
+    let mut key = String::<32>::new();
+    let _ = key.push_str(vowel);
+    let _ = key.push_str(particle);
+    triplet(&ENGLISH_DIPHTHONGS, key.as_str()).is_some()
+        || triplet(&MINOR_DIPHTHONGS, key.as_str()).is_some()
+}
+
+fn convert_to_kana(conso: &str, vowel: &str, particle: &str, include_extra: bool) -> KanaText {
+    let mut result = KanaText::new();
     if conso.is_empty() && vowel.is_empty() {
+        if include_extra {
+            let _ = result.push_str(second_sound(particle));
+        }
+        return result;
+    }
+
+    if conso == "STN" && vowel.is_empty() {
         if include_extra {
             let _ = result.push_str(second_sound(particle));
         }
@@ -1762,16 +1910,24 @@ fn convert_to_kana(conso: &str, vowel: &str, particle: &str, include_extra: bool
     let _ = conso_vowel.push_str(conso);
     let _ = conso_vowel.push_str(vowel);
 
-    if let Some(exception) = EXCEPTION_KANA
+    let exception = EXCEPTION_KANA
         .iter()
         .find(|(stroke, _)| *stroke == conso_vowel.as_str())
-        .map(|(_, kana)| *kana)
-    {
-        let _ = result.push_str(exception);
-        if include_extra {
-            let _ = result.push_str(second_sound(particle));
+        .map(|(_, kana)| *kana);
+    let prefer_exception = matches!(particle, "n" | "tk" | "ntk");
+
+    if prefer_exception {
+        if let Some(exception) = exception {
+            let _ = result.push_str(adjusted_exception_kana(
+                conso_vowel.as_str(),
+                particle,
+                exception,
+            ));
+            if include_extra {
+                let _ = result.push_str(second_sound(particle));
+            }
+            return result;
         }
-        return result;
     }
 
     let mut vowel_particle = String::<32>::new();
@@ -1815,6 +1971,18 @@ fn convert_to_kana(conso: &str, vowel: &str, particle: &str, include_extra: bool
         return result;
     }
 
+    if let Some(exception) = exception {
+        let _ = result.push_str(adjusted_exception_kana(
+            conso_vowel.as_str(),
+            particle,
+            exception,
+        ));
+        if include_extra {
+            let _ = result.push_str(second_sound(particle));
+        }
+        return result;
+    }
+
     let c_index = consonant_roma(conso)
         .and_then(|roma| ROMA_ORDER.iter().position(|value| *value == roma))
         .unwrap_or(0);
@@ -1835,6 +2003,24 @@ fn convert_to_kana(conso: &str, vowel: &str, particle: &str, include_extra: bool
     result
 }
 
+fn adjusted_exception_kana(
+    conso_vowel: &str,
+    particle: &str,
+    exception: &'static str,
+) -> &'static str {
+    if particle == "tk" {
+        match conso_vowel {
+            "SKIAU" => "ちぇ",
+            "STKNIAU" => "じぇ",
+            "STNIAU" => "しぇ",
+            "TNYIAU" => "いぇ",
+            _ => exception,
+        }
+    } else {
+        exception
+    }
+}
+
 fn second_sound(particle: &str) -> &'static str {
     match particle {
         "n" => "ん",
@@ -1848,7 +2034,7 @@ fn second_sound(particle: &str) -> &'static str {
     }
 }
 
-fn transform_particles(left: &str, right: &str, output: &mut Text, previous: &mut String<16>) {
+fn transform_particles(left: &str, right: &str, output: &mut KanaText, previous: &mut String<16>) {
     let right_tk = right
         .find('n')
         .map(|index| &right[index + 1..])
@@ -1913,9 +2099,24 @@ fn particle_left(particle: &str) -> Option<&'static str> {
         "tk" => Some("で"),
         "nt" => Some("と"),
         "nk" => Some("を"),
-        "ntk" => Some("か"),
+        "ntk" => Some("へ"),
         _ => None,
     }
+}
+
+fn replace_he_with_ka(output: &mut KanaText) {
+    if !output.as_str().contains('へ') {
+        return;
+    }
+    let mut replaced = KanaText::new();
+    let mut rest = output.as_str();
+    while let Some(index) = rest.find('へ') {
+        let _ = replaced.push_str(&rest[..index]);
+        let _ = replaced.push('か');
+        rest = &rest['へ'.len_utf8() + index..];
+    }
+    let _ = replaced.push_str(rest);
+    *output = replaced;
 }
 
 fn particle_right(particle: &str) -> Option<&'static str> {
@@ -1928,6 +2129,16 @@ fn particle_right(particle: &str) -> Option<&'static str> {
         "nt" => Some("は、"),
         "nk" => Some("が、"),
         "ntk" => Some("や"),
+        _ => None,
+    }
+}
+
+fn particle_command(left: &str, right: &str) -> Option<&'static str> {
+    match (left, right) {
+        ("", "nt") => Some("."),
+        ("", "nk") => Some(","),
+        ("n", "nt") => Some("?"),
+        ("n", "nk") => Some("!"),
         _ => None,
     }
 }

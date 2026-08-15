@@ -70,6 +70,10 @@ pub enum BleState {
     None,
 }
 
+fn reject_unencrypted_write(encrypted: bool) -> Option<AttErrorCode> {
+    (!encrypted).then_some(AttErrorCode::INSUFFICIENT_ENCRYPTION)
+}
+
 /// The number of the active profile
 pub static ACTIVE_PROFILE: AtomicU8 = AtomicU8::new(0);
 
@@ -552,6 +556,9 @@ async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_, Def
                             Some(AttErrorCode::INSUFFICIENT_ENCRYPTION)
                         }
                     }
+                    GattEvent::Write(_) if !conn.raw().security_level()?.encrypted() => {
+                        reject_unencrypted_write(false)
+                    }
                     GattEvent::Write(event) => {
                         if event.handle() == output_keyboard.handle {
                             if event.data().len() == 1 {
@@ -619,11 +626,7 @@ async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_, Def
                             debug!("Write GATT Event to Unknown: {:?}", event.handle());
                         }
 
-                        if conn.raw().security_level()?.encrypted() {
-                            None
-                        } else {
-                            Some(AttErrorCode::INSUFFICIENT_ENCRYPTION)
-                        }
+                        None
                     }
                     GattEvent::Other(_) => None,
                 };
@@ -716,6 +719,17 @@ async fn gatt_events_task(server: &Server<'_>, conn: &GattConnection<'_, '_, Def
     }
     info!("[gatt] task finished");
     Ok(())
+}
+
+#[cfg(test)]
+mod gatt_security_tests {
+    use super::reject_unencrypted_write;
+
+    #[test]
+    fn rejects_plaintext_writes_before_dispatch() {
+        assert!(reject_unencrypted_write(false).is_some());
+        assert!(reject_unencrypted_write(true).is_none());
+    }
 }
 
 /// Create an advertiser to use to connect to a BLE Central, and wait for it to connect.

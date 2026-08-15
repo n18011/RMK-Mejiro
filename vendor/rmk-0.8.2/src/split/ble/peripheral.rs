@@ -2,6 +2,7 @@ use bt_hci::cmd::le::LeSetPhy;
 use bt_hci::controller::ControllerCmdAsync;
 use embassy_futures::join::join;
 use embassy_futures::select::select;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer, with_timeout};
 use trouble_host::prelude::*;
 #[cfg(feature = "storage")]
@@ -11,12 +12,15 @@ use crate::CONNECTION_STATE;
 use crate::channel::KEY_EVENT_CHANNEL;
 use crate::split::driver::{SplitDriverError, SplitReader, SplitWriter};
 use crate::split::peripheral::SplitPeripheral;
+use crate::split::ble::require_encrypted_link;
 use crate::split::{SPLIT_MESSAGE_MAX_SIZE, SplitMessage};
 #[cfg(feature = "controller")]
 use crate::{
     channel::{CONTROLLER_CHANNEL, send_controller_event},
     event::ControllerEvent,
 };
+
+pub(crate) static CLEAR_PEER_REQUEST: Signal<crate::RawMutex, ()> = Signal::new();
 
 /// Gatt service used in split peripheral to send split message to central
 #[gatt_service(uuid = "4dd5fbaa-18e5-4b07-bf0a-353698659946")]
@@ -61,6 +65,20 @@ impl<'stack, 'server, 'c, P: PacketPool> SplitReader for BleSplitPeripheralDrive
                     return Err(SplitDriverError::Disconnected);
                 }
                 GattConnectionEvent::Gatt { event: gatt_event } => {
+                    let encrypted = self
+                        .conn
+                        .raw()
+                        .security_level()
+                        .map_err(|_| SplitDriverError::BleError(2))?
+                        .encrypted();
+                    if !encrypted {
+                        warn!("Rejecting split GATT request over an unencrypted link");
+                        match gatt_event.reject(AttErrorCode::INSUFFICIENT_ENCRYPTION) {
+                            Ok(reply) => reply.send().await,
+                            Err(e) => warn!("[gatt] error rejecting insecure request: {:?}", e),
+                        }
+                        continue;
+                    }
                     match &gatt_event {
                         GattEvent::Read(event) => {
                             info!("Gatt read event: {:?}", event.handle());
@@ -171,11 +189,27 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
     let peri_task = async {
         let server = BleSplitPeripheralServer::new_default("rmk").unwrap();
         loop {
+            if CLEAR_PEER_REQUEST.try_take().is_some() {
+                central_saved = false;
+                central_addr = None;
+                if let Err(()) = storage
+                    .write_peer_address(PeerAddress::new(0, false, [0; 6]))
+                    .await
+                {
+                    warn!("Failed to clear saved split peer");
+                }
+            }
             CONNECTION_STATE.store(false, core::sync::atomic::Ordering::Release);
             #[cfg(feature = "controller")]
             send_controller_event(&mut controller_pub, ControllerEvent::SplitCentral(false));
             match split_peripheral_advertise(id, central_addr, &mut peripheral, &server).await {
                 Ok(conn) => {
+                    if let Err(e) = require_encrypted_link(conn.raw()).await {
+                        error!("Rejecting unencrypted split central: {:?}", e);
+                        conn.raw().disconnect();
+                        Timer::after_millis(500).await;
+                        continue;
+                    }
                     info!("Connected to the central");
                     #[cfg(feature = "controller")]
                     send_controller_event(&mut controller_pub, ControllerEvent::SplitCentral(true));
@@ -235,12 +269,20 @@ async fn split_peripheral_advertise<'a, 'b, C: Controller>(
         .await?;
 
     match with_timeout(Duration::from_secs(10), advertiser.accept()).await {
+        Ok(conn_res) if central_addr.is_some() => {
+            let conn = conn_res?.with_attribute_server(server)?;
+            info!("[adv] directed connection established");
+            Ok(conn)
+        }
         Ok(conn_res) => {
             let conn = conn_res?.with_attribute_server(server)?;
             info!("[adv] connection established");
             Ok(conn)
         }
         Err(_) => {
+            if central_addr.is_some() {
+                return Err(BleHostError::BleHost(Error::Timeout));
+            }
             warn!("[adv] Try update central_addr");
             // Advertise without central addr
             let advertisement = get_peri_advertiser::<C>(id, None, &mut advertiser_data)?;
