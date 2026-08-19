@@ -44,15 +44,20 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install native dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        # Keep clang and libclang on the same major version; ubuntu-latest can
+        # otherwise resolve the meta packages to different LLVM releases.
+        run: sudo apt-get update && sudo apt-get install -y clang-18 libclang-18-dev
       - name: Configure libclang discovery
         run: |
-          libclang_file="$(find /usr/lib -type f \( -name 'libclang.so*' -o -name 'libclang-*.so*' \) -print -quit)"
+          clang_bin="$(command -v clang-18)"
+          test -x "$clang_bin"
+          clang_resource_dir="$("$clang_bin" -print-resource-dir)/include"
+          test -d "$clang_resource_dir"
+          libclang_file="$(find /usr/lib/llvm-18/lib -maxdepth 1 -type f -name 'libclang.so*' -print -quit)"
           test -n "$libclang_file"
+          echo "Using clang: $clang_bin"
           echo "Using libclang: $libclang_file"
           echo "LIBCLANG_PATH=$(dirname "$libclang_file")" >> "$GITHUB_ENV"
-          clang_resource_dir="$(find "$(dirname "$libclang_file")/clang" -type d -name include -print -quit)"
-          test -n "$clang_resource_dir"
           echo "BINDGEN_EXTRA_CLANG_ARGS=-I$clang_resource_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable (2026-08-15)
         with:
