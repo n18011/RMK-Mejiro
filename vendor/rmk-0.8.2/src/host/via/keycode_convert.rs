@@ -2,6 +2,13 @@ use rmk_types::action::{Action, KeyAction};
 use rmk_types::keycode::KeyCode;
 use rmk_types::modifier::ModifierCombination;
 
+const VIAL_CUSTOM_KEYCODE_BASE: u16 = 0x7E00;
+const VIAL_BLUETOOTH_KEYCODE_COUNT: u16 = 10;
+const VIAL_MEJIRO_KEYCODE_COUNT: u16 = 24;
+const VIAL_MEJIRO_KEYCODE_BASE: u16 = VIAL_CUSTOM_KEYCODE_BASE + VIAL_BLUETOOTH_KEYCODE_COUNT;
+const VIAL_CUSTOM_KEYCODE_END: u16 =
+    VIAL_MEJIRO_KEYCODE_BASE + VIAL_MEJIRO_KEYCODE_COUNT - 1;
+
 pub(crate) fn to_via_keycode(key_action: KeyAction) -> u16 {
     match key_action {
         KeyAction::No => 0x0000,
@@ -16,7 +23,12 @@ pub(crate) fn to_via_keycode(key_action: KeyAction) -> u16 {
                 if k.is_macro() {
                     k as u16 & 0xFF | 0x7700
                 } else if k.is_user() {
-                    k as u16 & 0xF | 0x7E00
+                    // User0..User9 are the Bluetooth custom keycodes declared
+                    // first in this keyboard's vial.json. The following Vial
+                    // custom slots are reserved for Mejiro Kb0..Kb23.
+                    VIAL_CUSTOM_KEYCODE_BASE + (k as u16 - KeyCode::User0 as u16)
+                } else if k.is_kb() {
+                    VIAL_MEJIRO_KEYCODE_BASE + (k as u16 - KeyCode::Kb0 as u16)
                 } else if k.is_combo() || k.is_boot() {
                     // is_rmk() 's subset
                     k as u16 & 0xFF | 0x7C00
@@ -197,9 +209,15 @@ pub(crate) fn from_via_keycode(via_keycode: u16) -> KeyAction {
         0x7C77 => KeyAction::Single(Action::Key(KeyCode::TriLayerLower)),
         // TriLayer Upper
         0x7C78 => KeyAction::Single(Action::Key(KeyCode::TriLayerUpper)),
-        0x7E00..=0x7E0F => {
-            // QK_KB_N, aka UserN
-            let keycode = via_keycode & 0xFF | 0x840;
+        VIAL_CUSTOM_KEYCODE_BASE..=VIAL_CUSTOM_KEYCODE_END => {
+            // The custom keycodes are ordered as Bluetooth User0..User9,
+            // followed by Mejiro Kb0..Kb23 in vial.json.
+            let custom_index = via_keycode - VIAL_CUSTOM_KEYCODE_BASE;
+            let keycode = if custom_index < VIAL_BLUETOOTH_KEYCODE_COUNT {
+                KeyCode::User0 as u16 + custom_index
+            } else {
+                KeyCode::Kb0 as u16 + custom_index - VIAL_BLUETOOTH_KEYCODE_COUNT
+            };
             KeyAction::Single(Action::Key(keycode.into()))
         }
         _ => {
@@ -213,6 +231,33 @@ pub(crate) fn from_via_keycode(via_keycode: u16) -> KeyAction {
 mod test {
     use super::*;
     use crate::types::keycode::{from_ascii, to_ascii};
+
+    const MEJIRO_KEYCODES: [KeyCode; 24] = [
+        KeyCode::Kb0,
+        KeyCode::Kb1,
+        KeyCode::Kb2,
+        KeyCode::Kb3,
+        KeyCode::Kb4,
+        KeyCode::Kb5,
+        KeyCode::Kb6,
+        KeyCode::Kb7,
+        KeyCode::Kb8,
+        KeyCode::Kb9,
+        KeyCode::Kb10,
+        KeyCode::Kb11,
+        KeyCode::Kb12,
+        KeyCode::Kb13,
+        KeyCode::Kb14,
+        KeyCode::Kb15,
+        KeyCode::Kb16,
+        KeyCode::Kb17,
+        KeyCode::Kb18,
+        KeyCode::Kb19,
+        KeyCode::Kb20,
+        KeyCode::Kb21,
+        KeyCode::Kb22,
+        KeyCode::Kb23,
+    ];
 
     #[test]
     fn test_convert_via_keycode_to_key_action() {
@@ -229,6 +274,23 @@ mod test {
             KeyAction::Single(Action::Key(KeyCode::RShift)),
             from_via_keycode(via_keycode)
         );
+
+        assert_eq!(
+            KeyAction::Single(Action::Key(KeyCode::User0)),
+            from_via_keycode(VIAL_CUSTOM_KEYCODE_BASE)
+        );
+        assert_eq!(
+            KeyAction::Single(Action::Key(KeyCode::User9)),
+            from_via_keycode(VIAL_CUSTOM_KEYCODE_BASE + VIAL_BLUETOOTH_KEYCODE_COUNT - 1)
+        );
+
+        // Custom keycodes: Bluetooth User0..User9, then Mejiro Kb0..Kb23.
+        for (index, keycode) in MEJIRO_KEYCODES.into_iter().enumerate() {
+            assert_eq!(
+                KeyAction::Single(Action::Key(keycode)),
+                from_via_keycode(VIAL_MEJIRO_KEYCODE_BASE + index as u16)
+            );
+        }
 
         // Mo(3)
         let via_keycode = 0x5223;
@@ -408,6 +470,23 @@ mod test {
         // Right shift
         let a = KeyAction::Single(Action::Key(KeyCode::RShift));
         assert_eq!(0xE5, to_via_keycode(a));
+
+        assert_eq!(
+            VIAL_CUSTOM_KEYCODE_BASE,
+            to_via_keycode(KeyAction::Single(Action::Key(KeyCode::User0)))
+        );
+        assert_eq!(
+            VIAL_CUSTOM_KEYCODE_BASE + VIAL_BLUETOOTH_KEYCODE_COUNT - 1,
+            to_via_keycode(KeyAction::Single(Action::Key(KeyCode::User9)))
+        );
+
+        // Mejiro Kb0..Kb23 use the custom slots after Bluetooth User0..User9.
+        for (index, keycode) in MEJIRO_KEYCODES.into_iter().enumerate() {
+            assert_eq!(
+                VIAL_MEJIRO_KEYCODE_BASE + index as u16,
+                to_via_keycode(KeyAction::Single(Action::Key(keycode)))
+            );
+        }
 
         // Mo(3)
         let a = KeyAction::Single(Action::LayerOn(3));

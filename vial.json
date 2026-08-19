@@ -57,6 +57,126 @@
             "name": "CLR_PEER",
             "title": "Forget the bonded split peer (hold for 5 seconds)",
             "shortName": "Clear\nPeer"
+        },
+        {
+            "name": "MEJIRO_KB0",
+            "title": "Mejiro Kb0 (Left #)",
+            "shortName": "M0 #"
+        },
+        {
+            "name": "MEJIRO_KB1",
+            "title": "Mejiro Kb1 (Left S)",
+            "shortName": "M1 S"
+        },
+        {
+            "name": "MEJIRO_KB2",
+            "title": "Mejiro Kb2 (Left T)",
+            "shortName": "M2 T"
+        },
+        {
+            "name": "MEJIRO_KB3",
+            "title": "Mejiro Kb3 (Left K)",
+            "shortName": "M3 K"
+        },
+        {
+            "name": "MEJIRO_KB4",
+            "title": "Mejiro Kb4 (Left N)",
+            "shortName": "M4 N"
+        },
+        {
+            "name": "MEJIRO_KB5",
+            "title": "Mejiro Kb5 (Left Y)",
+            "shortName": "M5 Y"
+        },
+        {
+            "name": "MEJIRO_KB6",
+            "title": "Mejiro Kb6 (Left I)",
+            "shortName": "M6 I"
+        },
+        {
+            "name": "MEJIRO_KB7",
+            "title": "Mejiro Kb7 (Left A)",
+            "shortName": "M7 A"
+        },
+        {
+            "name": "MEJIRO_KB8",
+            "title": "Mejiro Kb8 (Left U)",
+            "shortName": "M8 U"
+        },
+        {
+            "name": "MEJIRO_KB9",
+            "title": "Mejiro Kb9 (Left n)",
+            "shortName": "M9 n"
+        },
+        {
+            "name": "MEJIRO_KB10",
+            "title": "Mejiro Kb10 (Left t)",
+            "shortName": "M10 t"
+        },
+        {
+            "name": "MEJIRO_KB11",
+            "title": "Mejiro Kb11 (Left k)",
+            "shortName": "M11 k"
+        },
+        {
+            "name": "MEJIRO_KB12",
+            "title": "Mejiro Kb12 (Right S)",
+            "shortName": "M12 S"
+        },
+        {
+            "name": "MEJIRO_KB13",
+            "title": "Mejiro Kb13 (Right T)",
+            "shortName": "M13 T"
+        },
+        {
+            "name": "MEJIRO_KB14",
+            "title": "Mejiro Kb14 (Right K)",
+            "shortName": "M14 K"
+        },
+        {
+            "name": "MEJIRO_KB15",
+            "title": "Mejiro Kb15 (Right N)",
+            "shortName": "M15 N"
+        },
+        {
+            "name": "MEJIRO_KB16",
+            "title": "Mejiro Kb16 (Right Y)",
+            "shortName": "M16 Y"
+        },
+        {
+            "name": "MEJIRO_KB17",
+            "title": "Mejiro Kb17 (Right I)",
+            "shortName": "M17 I"
+        },
+        {
+            "name": "MEJIRO_KB18",
+            "title": "Mejiro Kb18 (Right A)",
+            "shortName": "M18 A"
+        },
+        {
+            "name": "MEJIRO_KB19",
+            "title": "Mejiro Kb19 (Right U)",
+            "shortName": "M19 U"
+        },
+        {
+            "name": "MEJIRO_KB20",
+            "title": "Mejiro Kb20 (Right n)",
+            "shortName": "M20 n"
+        },
+        {
+            "name": "MEJIRO_KB21",
+            "title": "Mejiro Kb21 (Right t)",
+            "shortName": "M21 t"
+        },
+        {
+            "name": "MEJIRO_KB22",
+            "title": "Mejiro Kb22 (Right k)",
+            "shortName": "M22 k"
+        },
+        {
+            "name": "MEJIRO_KB23",
+            "title": "Mejiro Kb23 (Right *)",
+            "shortName": "M23 *"
         }
     ],
     "layouts": {
