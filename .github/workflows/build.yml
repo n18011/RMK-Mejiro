@@ -67,7 +67,7 @@ jobs:
       - name: Install firmware tools
         run: cargo binstall cargo-make cargo-binutils cargo-hex-to-uf2 flip-link -y
       - name: Build firmware and generate UF2/HEX
-        run: cargo make uf2 --release
+        run: cargo make --no-workspace uf2 --release
       - name: Stage ELF firmware
         run: |
           cp target/thumbv7em-none-eabihf/release/central RMK-Mejiro-central.elf
