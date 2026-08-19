@@ -225,3 +225,4 @@ ble_profiles_num = 5
 
 [storage]
 enabled = true
+clear_storage = true
