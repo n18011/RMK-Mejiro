@@ -81,23 +81,38 @@ pub async fn scan_peripherals<
     loop {
         // Wait unitil `START_SCANNING` is signaled
         START_SCANNING.wait().await;
+        #[cfg(feature = "usb_log")]
+        info!("USB debug: split scanner start requested");
         // Check whether the scanning is needed, aka there's empty slot in the addr list.
         let need_scan = !addrs.borrow().iter().all(|a| a.is_some());
         if need_scan {
             let scanning_fut = async {
                 loop {
                     let Host { central, .. } = stack.build();
+                    #[cfg(feature = "usb_log")]
+                    info!("USB debug: split scanner waiting for BLE stack");
                     wait_for_stack_started().await;
+                    #[cfg(feature = "usb_log")]
+                    info!("USB debug: split scanner stack ready");
                     let mut scanner = Scanner::new(central);
                     let scan_config = ScanConfig {
                         active: false,
                         ..Default::default()
                     };
                     let _guard = SCANNING_MUTEX.lock().await;
-                    if let Ok(_session) = scanner.scan(&scan_config).await {
-                        info!("Start scanning peripherals");
-                        STOP_SCANNING.wait().await;
-                        info!("Stop scanning");
+                    #[cfg(feature = "usb_log")]
+                    info!("USB debug: split scanner issuing scan command");
+                    match scanner.scan(&scan_config).await {
+                        Ok(_session) => {
+                            info!("Start scanning peripherals");
+                            STOP_SCANNING.wait().await;
+                            info!("Stop scanning");
+                        }
+                        Err(e) => {
+                            #[cfg(feature = "usb_log")]
+                            error!("USB debug: split scanner command failed: {:?}", e);
+                            Timer::after_millis(100).await;
+                        }
                     }
                 }
             };
@@ -119,6 +134,11 @@ pub async fn scan_peripherals<
                         // Persist it only after the connection has passed the
                         // encrypted-link gate below.
                         *slot = Some(scanned_addr);
+                        // Wake a peripheral manager that has already consumed
+                        // the pairing gate and is waiting for the next arm.
+                        // Discovery itself is only reachable after pairing has
+                        // been armed, so this does not bypass the gate.
+                        PAIRING_ARMED.signal(());
                     }
 
                     if addrs.borrow().iter().all(|a| a.is_some()) {
@@ -159,6 +179,25 @@ pub async fn read_peripheral_addresses<
         }
         peripheral_addresses.push(None).unwrap();
     }
+
+    // USB-debug firmware is used for bring-up and must remain usable after
+    // `storage.clear_storage = true` erased the split bond.  The normal
+    // firmware keeps the explicit User9 long-press pairing gate, but the
+    // debug build can safely start discovery automatically.  Ignore any
+    // address that might still be present in flash so a stale bond cannot
+    // prevent a fresh left-hand enrollment.
+    #[cfg(feature = "usb_log")]
+    {
+        for address in peripheral_addresses.iter_mut() {
+            *address = None;
+        }
+        info!("USB debug: automatic split pairing scan armed");
+        PAIRING_ARMED.signal(());
+        // Arm the scanner directly as well.  This removes the startup
+        // ordering dependency between the manager task and scan task.
+        START_SCANNING.signal(());
+    }
+
     RefCell::new(peripheral_addresses)
 }
 
@@ -221,6 +260,8 @@ pub(crate) async fn run_ble_peripheral_manager<
                     break Address::random(*addr);
                 }
                 PAIRING_ARMED.wait().await;
+                #[cfg(feature = "usb_log")]
+                info!("USB debug: split pairing gate opened");
                 candidate = true;
                 if !START_SCANNING.signaled() {
                     START_SCANNING.signal(());
@@ -230,6 +271,11 @@ pub(crate) async fn run_ble_peripheral_manager<
             };
             (address, candidate)
         };
+        // A scan candidate may have left a pairing signal queued while the
+        // manager was waiting for its address.  Consume the wake-up state
+        // before connecting so a later peer clear still requires an explicit
+        // pairing arm in normal firmware.
+        PAIRING_ARMED.reset();
         info!("Peripheral peer address: {:?}", address);
 
         let Host { mut central, .. } = stack.build();
@@ -555,6 +601,16 @@ impl<'a, 'b, 'c, C: Controller + ControllerCmdAsync<LeSetPhy>, P: PacketPool> Sp
 ///
 /// If the BLE stack has been started, wait 500ms then quit.
 pub(crate) async fn wait_for_stack_started() {
+    #[cfg(feature = "usb_log")]
+    {
+        // USB-debug firmware starts the split tasks alongside RMK's BLE
+        // runner.  Do not make bring-up depend on the one-shot startup
+        // signal; a short settling delay lets the runner reach its first
+        // poll while still allowing scan/connect errors to be reported.
+        embassy_time::Timer::after_millis(500).await;
+    }
+
+    #[cfg(not(feature = "usb_log"))]
     loop {
         if STACK_STARTED.signaled() {
             embassy_time::Timer::after_millis(500).await;

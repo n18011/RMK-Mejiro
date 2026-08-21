@@ -86,6 +86,20 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_and_stray_events_do_not_corrupt_first_up_state() {
+        let mut session = MejiroSession::new(true);
+
+        assert!(session.press(MejiroKey::LeftA).is_none());
+        assert!(session.press(MejiroKey::LeftA).is_none());
+        assert!(session.release(MejiroKey::LeftK).is_none());
+        assert_eq!(
+            session.release(MejiroKey::LeftA).unwrap().as_text(),
+            Some("a")
+        );
+        assert!(session.release(MejiroKey::LeftA).is_none());
+    }
+
+    #[test]
     fn a_failed_stroke_is_explicitly_reported_for_passthrough() {
         let result = super::mejiro::transform("-A");
 
@@ -159,6 +173,18 @@ mod tests {
         assert_eq!(super::mejiro::transform("STKNU").as_text(), Some("vu"));
         assert_eq!(super::mejiro::transform("SKYI").as_text(), Some("wyi"));
         assert_eq!(super::mejiro::transform("TNYA").as_text(), Some("thi"));
+    }
+
+    #[test]
+    fn standalone_sokuon_special_case_does_not_drop_a_following_sound() {
+        assert_eq!(
+            super::mejiro::transform("STNtk-Atk").as_text(),
+            Some("xtua")
+        );
+        assert_eq!(
+            super::mejiro::transform("STNtk-KAtk").as_text(),
+            Some("kka")
+        );
     }
 
     #[test]
@@ -553,7 +579,7 @@ mod tests {
             Some(super::mejiro::TextOperation::Left)
         ));
         assert!(matches!(
-            operations.get(0),
+            operations.first(),
             Some(super::mejiro::TextOperation::Text(value)) if value.as_str() == "a"
         ));
         assert!(matches!(

@@ -184,6 +184,12 @@ pub(crate) async fn run_ble<
         mut peripheral, runner, ..
     } = stack.build();
 
+    // The split scanner is a sibling task of this BLE runner.  Signal as
+    // soon as the host has been built so the scanner does not depend on the
+    // runner getting its first poll before it can issue its HCI scan command.
+    #[cfg(feature = "split")]
+    crate::split::ble::central::STACK_STARTED.signal(true);
+
     info!("Starting advertising and GATT service");
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: rmk_config.device_config.product_name,
@@ -473,6 +479,8 @@ pub(crate) async fn ble_task<C: Controller + ControllerCmdAsync<LeSetPhy>, P: Pa
         #[cfg(feature = "split")]
         {
             // Signal to indicate the stack is started
+            #[cfg(feature = "usb_log")]
+            info!("USB debug: BLE stack runner started");
             crate::split::ble::central::STACK_STARTED.signal(true);
             if let Err(_e) = runner
                 .run_with_handler(&crate::split::ble::central::ScanHandler {})

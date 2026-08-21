@@ -6,8 +6,44 @@ install_crate = { crate_name = "flip-link", binary = "flip-link", test_arg = ["-
 
 [tasks.build]
 command = "cargo"
-args = ["build", "--release"]
-dependencies = ["install-llvm-tools", "flip-link"]
+args = ["build", "--release", "--features", "swd-debug"]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.build-central]
+command = "cargo"
+args = ["build", "--release", "--features", "swd-debug", "--bin", "central"]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.build-peripheral]
+command = "cargo"
+args = ["build", "--release", "--features", "swd-debug", "--bin", "peripheral"]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.build-usb-debug-central]
+command = "cargo"
+args = [
+    "build",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "central",
+]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.build-usb-debug-peripheral]
+command = "cargo"
+args = [
+    "build",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "peripheral",
+]
+env = { RUST_MIN_STACK = "67108864" }
 
 [tasks.objcopy-central]
 install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
@@ -18,6 +54,8 @@ command = "cargo"
 args = [
     "objcopy",
     "--release",
+    "--features",
+    "swd-debug",
     "--bin",
     "central",
     "--",
@@ -25,7 +63,7 @@ args = [
     "ihex",
     "RMK-Mejiro-central.hex",
 ]
-dependencies = ["build"]
+dependencies = ["build-central"]
 
 [tasks.objcopy-peripheral]
 install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
@@ -36,6 +74,8 @@ command = "cargo"
 args = [
     "objcopy",
     "--release",
+    "--features",
+    "swd-debug",
     "--bin",
     "peripheral",
     "--",
@@ -43,13 +83,57 @@ args = [
     "ihex",
     "RMK-Mejiro-peripheral.hex",
 ]
-dependencies = ["build"]
+dependencies = ["build-peripheral"]
+
+[tasks.objcopy-usb-debug-central]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "central",
+    "--",
+    "-O",
+    "ihex",
+    "RMK-Mejiro-central-usb-debug.hex",
+]
+dependencies = ["build-usb-debug-central"]
+
+[tasks.objcopy-usb-debug-peripheral]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "peripheral",
+    "--",
+    "-O",
+    "ihex",
+    "RMK-Mejiro-peripheral-usb-debug.hex",
+]
+dependencies = ["build-usb-debug-peripheral"]
 
 [tasks.bin-central]
 command = "cargo"
 args = [
     "objcopy",
     "--release",
+    "--features",
+    "swd-debug",
     "--bin",
     "central",
     "--",
@@ -57,13 +141,15 @@ args = [
     "binary",
     "RMK-Mejiro-central.bin",
 ]
-dependencies = ["build"]
+dependencies = ["build-central"]
 
 [tasks.bin-peripheral]
 command = "cargo"
 args = [
     "objcopy",
     "--release",
+    "--features",
+    "swd-debug",
     "--bin",
     "peripheral",
     "--",
@@ -71,7 +157,7 @@ args = [
     "binary",
     "RMK-Mejiro-peripheral.bin",
 ]
-dependencies = ["build"]
+dependencies = ["build-peripheral"]
 
 [tasks.bin]
 dependencies = ["bin-central", "bin-peripheral"]
@@ -110,5 +196,107 @@ args = [
 ]
 dependencies = ["objcopy-peripheral"]
 
+[tasks.uf2-usb-debug-central]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "RMK-Mejiro-central-usb-debug.hex",
+    "--output-path",
+    "RMK-Mejiro-central-usb-debug.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-usb-debug-central"]
+
+[tasks.uf2-usb-debug-peripheral]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "RMK-Mejiro-peripheral-usb-debug.hex",
+    "--output-path",
+    "RMK-Mejiro-peripheral-usb-debug.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-usb-debug-peripheral"]
+
 [tasks.uf2]
 dependencies = ["uf2-central", "uf2-peripheral"]
+
+[tasks.flash-uf2-central]
+command = "python3"
+args = ["tools/flash_uf2.py", "RMK-Mejiro-central.uf2"]
+dependencies = ["uf2-central"]
+
+[tasks.flash-uf2-peripheral]
+command = "python3"
+args = ["tools/flash_uf2.py", "RMK-Mejiro-peripheral.uf2"]
+dependencies = ["uf2-peripheral"]
+
+[tasks.flash-uf2-usb-debug-central]
+command = "python3"
+args = ["tools/flash_uf2.py", "RMK-Mejiro-central-usb-debug.uf2"]
+dependencies = ["uf2-usb-debug-central"]
+
+[tasks.flash-uf2-usb-debug-peripheral]
+command = "python3"
+args = ["tools/flash_uf2.py", "RMK-Mejiro-peripheral-usb-debug.uf2"]
+dependencies = ["uf2-usb-debug-peripheral"]
+
+[tasks.flash-swd-central]
+command = "cargo"
+args = ["run", "--release", "--features", "swd-debug", "--bin", "central"]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.flash-swd-peripheral]
+command = "cargo"
+args = ["run", "--release", "--features", "swd-debug", "--bin", "peripheral"]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.flash-swd-usb-debug-central]
+command = "cargo"
+args = [
+    "run",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "central",
+]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.flash-swd-usb-debug-peripheral]
+command = "cargo"
+args = [
+    "run",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "usb-debug",
+    "--bin",
+    "peripheral",
+]
+env = { RUST_MIN_STACK = "67108864" }
+
+[tasks.check-dev]
+command = "python3"
+args = ["tools/check_dev_env.py"]
+
+[tasks.qmk-dynamic-regression]
+command = "python3"
+args = ["tools/qmk_dynamic_regression.py"]
+
+[tasks.monitor-usb]
+command = "python3"
+args = ["tools/monitor_usb.py"]

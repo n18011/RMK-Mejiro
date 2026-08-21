@@ -264,9 +264,19 @@ async fn split_peripheral_advertise<'a, 'b, C: Controller>(
     let mut advertiser_data = [0; 31];
     let advertisement = get_peri_advertiser::<C>(id, central_addr, &mut advertiser_data)?;
 
+    #[cfg(feature = "usb_log")]
+    if central_addr.is_some() {
+        info!("USB debug: split peripheral directed advertisement requested");
+    } else {
+        info!("USB debug: split peripheral undirected advertisement requested");
+    }
+
     let advertiser = peripheral
         .advertise(&AdvertisementParameters::default(), advertisement)
         .await?;
+
+    #[cfg(feature = "usb_log")]
+    info!("USB debug: split peripheral advertisement active");
 
     match with_timeout(Duration::from_secs(10), advertiser.accept()).await {
         Ok(conn_res) if central_addr.is_some() => {
@@ -289,6 +299,8 @@ async fn split_peripheral_advertise<'a, 'b, C: Controller>(
             let advertiser = peripheral
                 .advertise(&AdvertisementParameters::default(), advertisement)
                 .await?;
+            #[cfg(feature = "usb_log")]
+            info!("USB debug: split peripheral fallback advertisement active");
             match with_timeout(Duration::from_secs(300), advertiser.accept()).await {
                 Ok(re) => Ok(re?.with_attribute_server(server)?),
                 Err(_e) => Err(BleHostError::BleHost(Error::Timeout)),

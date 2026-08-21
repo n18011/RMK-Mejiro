@@ -1,6 +1,6 @@
 # RMK-Mejiro 現行仕様書
 
-最終確認日: 2026-08-15
+最終確認日: 2026-08-21
 
 この文書は、RMK-Mejiro の現在の実装を利用者・保守者向けに定義する仕様書です。
 セッション状態の正本は [`crates/mejiro-core/src/mejiro.rs`](../crates/mejiro-core/src/mejiro.rs)、変換表と変換処理の正本は
@@ -50,10 +50,23 @@ Mejiro 入力として消費します。Peripheral には Mejiro コントロー
 出力は RMK の `from_ascii` とキーコードを使った US-HID 境界で生成されます。したがって、
 変換結果は日本語かなそのものではなく、ホスト側で解釈される ASCII ローマ字です。
 
-BLE split の peer は公開サービスUUIDだけでは自動登録しません。未登録時はCentral側の
-Bluetoothレイヤーで `User9` を5秒保持して一度だけ探索を開始し、接続後に暗号化
-リンクが成立した場合だけアドレスを永続化します。登録済みpeerの directed advertising
-がタイムアウトしても、別の公開advertiserへ自動的にフォールバックしません。
+BLE split は右側をCentral、左側をPeripheralとして動作します。ホスト側のBluetooth接続を
+持つのは右側のCentralだけで、左側は右側へ入力を転送するsplit peerです。公開サービスUUID
+だけでは通常ビルドのpeerを自動登録しません。通常ビルドでは未登録時に右側のBluetoothレイヤーで
+`User9` を5秒保持して一度だけ探索を開始し、接続後に暗号化リンクが成立した場合だけアドレスを
+永続化します。`usb-debug` ビルドでは、保存peerの有無にかかわらず保存アドレスを無視し、
+検証用に探索を自動開始します。
+登録済みpeerの directed advertising がタイムアウトしても、別の公開advertiserへ自動的に
+フォールバックしません。QWERTYレイヤーの `LT(8,Escape)` は `(0,6,L)` の左手側にあります。
+Mejiroベースには同じ `LT(8,Escape)` を `(3,11,R)` に複製し、右手だけでもBluetoothレイヤーへ
+入れるようにしています。Bluetoothレイヤーへ入った後、隣の `(3,12,R)` にある `User9` を
+5秒保持するとpeer探索を開始できます。古い
+Vial設定やBLE bondを残さないため、現在も
+`keyboard.toml` の `storage.clear_storage = true` を意図的に使っています。RMKでは起動ごとに
+保存領域を消去するため、通常ビルドでBLE接続を検証する場合は起動ごとにpeer探索を開始してください。
+`usb-debug` ではこの探索を自動化しています。
+`clear_layout` は `false` のままにし、Vialレイアウトは
+ファームウェアの初期値として別途検証します。
 
 ## 3. Mejiro キー仕様
 
@@ -231,9 +244,33 @@ RMK 側の設計です。
 ## 8. キーボード構成
 
 `keyboard.toml` がレイヤー、matrix_map、split の寸法と `Kb0`〜`Kb23` の配置の正本です。
-`tools/validate_keyboard.py` はこのファイルから宣言値を読み取り、レイヤー数・各行の幅・
-Mejiroキーの一意性・split矩形の境界を検証します。Mejiro専用レイヤーだけが24個の
-`Kb`キーを持ち、通常キー・機能キー・マウス・数字・Bluetooth操作と共存します。
+`tools/validate_keyboard.py` はこのファイルと `vial.json` を読み取り、レイヤー数・各行の幅・
+`matrix_map` の重複・Mejiroキーの一意性とCygnus-M上の配置・split矩形の境界・Vialの物理配置と
+カスタムキーコード順序を検証します。layer 0 の `base` がMejiro/Gemini入力を持ち、そこだけが24個の `Kb` キーを持ちます。通常キー・機能キー・
+マウス・数字・Bluetooth操作と共存します。物理行列の `(0,5)` はCygnus-M基板に存在しない
+意図的な空きスロットです。
+
+レイヤーの順序は、RMKの起動時デフォルトがlayer 0であることを前提に固定しています。
+
+| index | name | 役割 |
+| ---: | --- | --- |
+| 0 | `base` | Mejiro/Gemini。左右親指の`LT(1,Space)`でQWERTYへ入り、右外側の`LT(8,Escape)`でBluetoothへ入る |
+| 1 | `qwerty` | 通常QWERTY。`LT(2,Enter)`でQWERTY shift、Bluetooth・数字操作もここから入る |
+| 2 | `qwerty_shift` | QWERTY shift |
+| 3–9 | `function`〜`number_shift` | 既存の機能・ポインティング・数字・Bluetooth補助レイヤー |
+
+Mejiroレイヤーの見た目は、Vialの行順で次のとおりです。
+
+```text
+Kb0 Kb1 Kb2 Kb3 Kb4 Kb5       Kb12 Kb13 Kb14 Kb15 Kb16 Kb17
+_   Kb6 Kb7 Kb8 Kb9 Kb10 Kb11 Kb18 Kb19 Kb20 Kb21 Kb22 Kb23 _
+_   _   _   _   _   _   _       _   _   _   _   _   _   _
+_   _   _   _   _   LT(1,Space) _   LT(1,Space) LT(2,Enter) LT(8,Escape) _
+```
+
+このうち右手の先頭キー `Kb18` は、物理matrixでは `(3,7,R)` に割り当てられています。
+左手の先頭空きは `(1,6,L)` です。見た目の行番号とmatrix行番号を混同しないよう、実機ログの
+`mejiro key: KbN -> LogicalName` と併用します。
 
 ## 9. CI/CD と検証条件
 
@@ -245,6 +282,7 @@ Mejiroキーの一意性・split矩形の境界を検証します。Mejiro専用
 - `python3 tools/qmk_regression.py`
 - `cargo fmt --all -- --check`
 - `cargo test --workspace --target x86_64-unknown-linux-gnu --lib`
+- `cargo test --no-default-features --features usb-debug --workspace --target x86_64-unknown-linux-gnu --lib`
 - Clippy を `-D warnings` で実行
 - `cargo llvm-cov` で行カバレッジ 80%以上を要求
 
@@ -261,6 +299,25 @@ UF2 と HEX を生成し、ELF/UF2/HEX を GitHub Actions artifact として保�
 2. `crates/mejiro-core/src/lib.rs` または `crates/mejiro-rmk/src/lib.rs` のホスト契約テストを追加・修正
 3. キーボード設定を変更した場合は `tools/validate_keyboard.py` を実行
 4. Host 検証と Firmware 検証を CI で完了
+
+## 10. ローカル書き込みとデバッグ
+
+`Makefile.toml` はログ経路の異なる2つのファームウェアプロファイルを持ちます。
+
+| プロファイル | 書き込み | ログ | 用途 |
+| --- | --- | --- | --- |
+| `swd-debug` | `flash-swd-central` / `flash-swd-peripheral` または通常UF2 | probe-rs RTT / defmt | SWDプローブで起動ログを確認 |
+| `usb-debug` | `flash-uf2-usb-debug-*` または `flash-swd-usb-debug-*` | USB CDC-ACM / log | SWDプローブなしでUSB起動ログを確認 |
+
+RMKは`defmt`と`log`を同時に有効化できないため、`usb-debug`タスクは必ず
+`--no-default-features --features usb-debug`でビルドします。CentralのCDCログはHID/Vial
+複合デバイスの追加インターフェース、PeripheralのCDCログはBLE split serviceと並行する
+専用loggerデバイスとして公開されます。`tools/monitor_usb.py`がLinux/macOSのCDCデバイス
+再接続を待ち受けます。USBデバッグを使う前に`cargo make --no-workspace check-dev`を実行し、
+ARMビルドに必要な`libclang`の有無も確認します。`usb-debug`時はMejiroの受信イベントと
+`StrokeResult`も`DEBUG`ログへ出します。
+Peripheral loggerのUSB serialは`vial:f64c2b3c:peripheral`、CentralはRMKが生成する
+右手基板固有のserialです。
 
 現在の検証実績と、ローカル環境で未導入だったゲートの記録は
 [`tdd-evidence.md`](tdd-evidence.md) を参照してください。

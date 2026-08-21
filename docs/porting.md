@@ -49,8 +49,8 @@ RMK固有の`MejiroController`は`crates/mejiro-rmk`アダプターcrateへ分�
 `c0f986d9608d377a0ed4ade345a8b4e9300f37c8`です。変換表（かな、略語、動詞辞書）と
 変換順序を機械的に照合する`tools/qmk_regression.py`をCIで実行します。現在の
 ハーネスはかな154件、略語117件・動詞181件の静的テーブルを比較し、QMK側に意図的に存在しない
-Rust固有の3エントリも明示的に記録します。変換結果は代表的な契約テストで固定し、
-網羅比較を実施したという根拠のない記録は残しません。
+Rust固有の3エントリも明示的に記録します。さらに`tools/qmk_dynamic_regression.py`は
+QMK C実装とRust実装へ同じ29,003ケースを流し、実行時の出力も比較します。
 
 | 項目 | QMK版 | RMK版 | 判定 |
 | --- | --- | --- | --- |
@@ -59,6 +59,7 @@ Rust固有の3エントリも明示的に記録します。変換結果は代表
 | 変換失敗時 | GeminiのSTNキーをパススルー | `Unsupported`を出力せず破棄 | 意図した適応。RMK側にGemini raw HID境界がないため |
 | 全押しキャンセル | 変換失敗で無出力 | `StrokeResult::Noop`で明示 | 等価 |
 | `A-`／`K-` | QMKの動詞特殊処理が無印にも適用される | 無印は基本音`a`／`ka`、`*`付きだけ動詞 | 意図した衝突回避。無印の基本母音を守る |
+| 促音＋長音符 `っー` | `--`（QMKの非アルファベット先頭処理） | `xtu-` | 意図した修正。促音を長音符へ重ねず、入力を失わない |
 | 履歴の文字数 | 変換結果は`kana_length`中心 | 実際に送るASCII長（`{#Left}`を除外） | 意図した適応。ASCII HIDでBackspaceを一致させる |
 | `reset()` | QMKの`mejiro_reset_state()`は履歴を保持 | Rustのテスト用セッションリセットは履歴も消去 | ファームウェアのモード遷移からは未使用。API差分として明記 |
 | マクロ容量 | 1キーあたり512バイト | 1キーあたり128バイト。超過時は`Truncated`として記録し、部分的なマクロを再生しない | RMK側の固定バッファ設計による制限。長大マクロはQMKと同一ではない |
@@ -67,7 +68,7 @@ Rust固有の3エントリも明示的に記録します。変換結果は代表
 上表の「意図した適応」以外は、QMKの変換結果・first-up確定・履歴更新・マクロ制御を
 Rust側で再現しています。特に`#`のリピート、例外かなの優先順位、上一段／補助動詞の
 推論、`tk`の促音持ち越しは回帰テストの対象で、辞書テーブルは固定スナップショットと
-機械比較します。
+機械比較します。動的比較の現在の差分は上表の`っー` 1件だけです。
 
 ## 検証
 
@@ -75,6 +76,7 @@ Rust側で再現しています。特に`#`のリピート、例外かなの優�
 RUST_MIN_STACK=67108864 cargo fmt --all -- --check
 RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu --lib
 cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
+cargo make --no-workspace qmk-dynamic-regression
 cargo llvm-cov --workspace --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
 cargo make uf2 --release
 ```

@@ -5,12 +5,17 @@ edition = "2021"
 description = "RMK adapter for the portable Mejiro/Gemini input engine"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+usb-debug = ["dep:log"]
+
 [dependencies]
 mejiro-core = { path = "../mejiro-core" }
 rmk = { version = "=0.8.2", default-features = false, features = [
     "controller",
     "mejiro",
 ] }
+log = { version = "0.4", optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.2", features = ["std"] }

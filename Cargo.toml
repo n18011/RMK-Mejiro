@@ -14,6 +14,15 @@ readme = "README.md"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+# Keep host tests free of embedded logging backends. Firmware tasks select a
+# profile explicitly below.
+default = []
+swd-debug = ["rmk/defmt"]
+# RMK's USB logger is a CDC-ACM interface. It cannot be combined with RMK's
+# defmt feature, so USB logging is an explicit alternative build profile.
+usb-debug = ["rmk/usb_log", "mejiro-rmk/usb-debug"]
+
 [dependencies]
 mejiro-core = { path = "crates/mejiro-core" }
 mejiro-rmk = { path = "crates/mejiro-rmk" }
@@ -26,8 +35,7 @@ rmk = { version = "=0.8.2", default-features = false, features = [
 ] }
 
 [target.'cfg(target_arch = "arm")'.dependencies]
-rmk = { version = "=0.8.2", features = [
-    "defmt",
+rmk = { version = "=0.8.2", default-features = false, features = [
     "nrf52840_ble",
     "adafruit_bl",
 ] }
@@ -73,6 +81,7 @@ embassy-usb-driver = "=0.2.0"
 
 [patch.crates-io]
 rmk = { path = "vendor/rmk-0.8.2" }
+rmk-macro = { path = "vendor/rmk-macro-0.7.1" }
 
 [build-dependencies]
 xz2 = "0.1.7"

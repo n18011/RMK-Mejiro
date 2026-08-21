@@ -20,6 +20,9 @@ unlock_keys = [[0, 7], [0, 8]]
 rows = 4
 cols = 13
 layers = 10
+# Layer indices are zero-based: base=0 (Mejiro), qwerty=1, qwerty_shift=2,
+# function=3, arrow=4, mouse=5, scroll=6, numeric=7, bluetooth=8,
+# number_shift=9. Keep LT(...) references synchronized with this order.
 matrix_map = """
 (0,6,L) (0,0,L) (0,1,L) (0,2,L) (0,3,L) (0,4,L) (0,7,R) (0,8,R) (0,9,R) (0,10,R) (0,11,R) (0,12,R)
 (1,6,L) (1,0,L) (1,1,L) (1,2,L) (1,3,L) (1,4,L) (1,5,L) (3,7,R) (1,7,R) (1,8,R) (1,9,R) (1,10,R) (1,11,R) (1,12,R)
@@ -27,23 +30,12 @@ matrix_map = """
 (3,6,L) (3,0,L) (3,1,L) (3,2,L) (3,3,L) (3,4,L) (3,5,L) (3,9,R) (3,10,R) (3,11,R) (3,12,R)
 """
 
-# Base layer. The encoder scroll direction follows the original ROTATE
-# sensor binding: clockwise = down, counter-clockwise = up.
+# Base layer is Mejiro/Gemini. Hold either QWERTY layer-tap for the
+# conventional QWERTY layer; the right thumb also exposes the shifted layer
+# and a Bluetooth recovery layer-tap. The encoder scroll direction follows
+# the original ROTATE sensor binding: clockwise = down, counter-clockwise = up.
 [[layer]]
 name = "base"
-keys = """
-LT(3,Escape) Q W E R T Y U I O P Backspace
-
-Tab A S D F G MouseBtn3 Up H J K LT(9,L) LT(7,Minus) Enter
-
-LShift Z X C V B Delete Down N M Comma Dot Slash RShift
-
-LCtrl LGui LAlt Language5 Left LT(1,Space) Right Backspace LT(2,Enter) Delete RCtrl
-"""
-encoders = [["MouseWheelDown", "MouseWheelUp"]]
-
-[[layer]]
-name = "mejiro_gemini"
 keys = """
 Kb0 Kb1 Kb2 Kb3 Kb4 Kb5 Kb12 Kb13 Kb14 Kb15 Kb16 Kb17
 
@@ -51,7 +43,20 @@ _ Kb6 Kb7 Kb8 Kb9 Kb10 Kb11 Kb18 Kb19 Kb20 Kb21 Kb22 Kb23 _
 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
-_ _ _ _ _ _ _ _ _ _ _
+_ _ _ _ _ LT(1,Space) _ LT(1,Space) LT(2,Enter) LT(8,Escape) _
+"""
+encoders = [["MouseWheelDown", "MouseWheelUp"]]
+
+[[layer]]
+name = "qwerty"
+keys = """
+LT(8,Escape) Q W E R T Y U I O P Backspace
+
+Tab A S D F G MouseBtn3 Up H J K LT(9,L) LT(7,Minus) Enter
+
+LShift Z X C V B Delete Down N M Comma Dot Slash RShift
+
+LCtrl LGui LAlt Language5 Left Space Right Backspace LT(2,Enter) Delete RCtrl
 """
 
 [[layer]]
@@ -96,7 +101,7 @@ name = "mouse"
 keys = """
 _ _ _ WM(PageUp, LCtrl) WM(PageDown, LCtrl) WM(R, LGui) WM(R, LGui) WM(PageUp, LCtrl) WM(PageDown, LCtrl) _ _ _
 
-_ LT(5,Space) LT(4,Space) MouseBtn1 MouseBtn2 MouseBtn3 MouseBtn3 _ MouseBtn3 MouseBtn1 MouseBtn2 LT(4,Space) LT(5,Space) _
+_ LT(7,Space) LT(6,Space) MouseBtn1 MouseBtn2 MouseBtn3 MouseBtn3 _ MouseBtn3 MouseBtn1 MouseBtn2 LT(6,Space) LT(7,Space) _
 
 _ _ _ _ _ _ _ _ _ _ MouseBtn4 MouseBtn5 _ _
 
@@ -225,4 +230,6 @@ ble_profiles_num = 5
 
 [storage]
 enabled = true
+# Migration reset: erase legacy Vial/BLE storage at boot. Set false after one clean boot.
 clear_storage = true
+clear_layout = false

@@ -327,6 +327,9 @@ impl MejiroSession {
     }
 
     pub fn press(&mut self, key: MejiroKey) -> Option<StrokeResult> {
+        if self.held.contains(key) {
+            return None;
+        }
         self.held.press(key);
         self.down_count = self.down_count.saturating_add(1);
 
@@ -340,6 +343,9 @@ impl MejiroSession {
     }
 
     pub fn release(&mut self, key: MejiroKey) -> Option<StrokeResult> {
+        if !self.held.contains(key) {
+            return None;
+        }
         self.held.release(key);
         self.down_count = self.down_count.saturating_sub(1);
 

@@ -98,6 +98,55 @@ pub mod storage;
 #[cfg(not(feature = "_no_usb"))]
 pub mod usb;
 
+/// Run RMK's USB CDC logger without starting the keyboard HID runner.
+///
+/// Split peripherals do not call [`run_rmk`], so the peripheral entry point
+/// needs a small public hook to reuse the same logger implementation.
+#[cfg(feature = "usb_log")]
+pub async fn run_usb_logger<D>(driver: D, serial_number: &'static str) -> !
+where
+    D: Driver<'static>,
+{
+    use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+
+    static LOGGER: embassy_usb_logger::UsbLogger<1024, embassy_usb_logger::DummyHandler> =
+        embassy_usb_logger::UsbLogger::new();
+
+    unsafe {
+        let _ = log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy(log::LevelFilter::Debug));
+    }
+
+    let mut usb_config = embassy_usb::Config::new(0xc0de, 0xcafe);
+    usb_config.manufacturer = Some("n18011");
+    // Keep the product descriptor within the control buffer even before the
+    // host has selected the configuration. The serial number is the stable
+    // role-specific identifier used by udev.
+    usb_config.product = Some("RMK-Mejiro Peripheral");
+    usb_config.serial_number = Some(serial_number);
+    usb_config.max_power = 100;
+    usb_config.max_packet_size_0 = embassy_usb_logger::MAX_PACKET_SIZE;
+
+    static CONFIG_DESC: static_cell::StaticCell<[u8; 128]> = static_cell::StaticCell::new();
+    static BOS_DESC: static_cell::StaticCell<[u8; 16]> = static_cell::StaticCell::new();
+    static MSOS_DESC: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
+    static CONTROL_BUF: static_cell::StaticCell<[u8; 128]> = static_cell::StaticCell::new();
+    static LOGGER_STATE: static_cell::StaticCell<State> = static_cell::StaticCell::new();
+
+    let mut builder = embassy_usb::Builder::new(
+        driver,
+        usb_config,
+        &mut CONFIG_DESC.init([0; 128])[..],
+        &mut BOS_DESC.init([0; 16])[..],
+        &mut MSOS_DESC.init([0; 256])[..],
+        &mut CONTROL_BUF.init([0; 128])[..],
+    );
+    let logger_class = CdcAcmClass::new(&mut builder, LOGGER_STATE.init(State::new()), 64);
+    let mut usb_device = builder.build();
+
+    let (never, _) = embassy_futures::join::join(usb_device.run(), LOGGER.create_future_from_class(logger_class)).await;
+    never
+}
+
 pub async fn initialize_keymap<'a, const ROW: usize, const COL: usize, const NUM_LAYER: usize>(
     default_keymap: &'a mut [[[KeyAction; COL]; ROW]; NUM_LAYER],
     behavior_config: &'a mut config::BehaviorConfig,

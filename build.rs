@@ -18,6 +18,12 @@ use std::{env, fs};
 use xz2::read::XzEncoder;
 
 fn main() {
+    if env::var_os("CARGO_FEATURE_SWD_DEBUG").is_some()
+        && env::var_os("CARGO_FEATURE_USB_DEBUG").is_some()
+    {
+        panic!("swd-debug and usb-debug are mutually exclusive; use --no-default-features --features usb-debug");
+    }
+
     // Generate vial config at the root of project
     println!("cargo:rerun-if-changed=vial.json");
     println!("cargo:rerun-if-changed=keyboard.toml");

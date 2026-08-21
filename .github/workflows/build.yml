@@ -23,13 +23,15 @@ jobs:
       - name: Validate keyboard contract
         run: python3 tools/validate_keyboard.py
       - name: Test keyboard contract edge cases
-        run: python3 -m unittest tools/test_validate_keyboard.py
+        run: python3 -m unittest tools/test_validate_keyboard.py tools/test_flash_uf2.py
       - name: Compare QMK static tables
         run: python3 tools/qmk_regression.py
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run TDD contract tests
         run: cargo test --workspace --target x86_64-unknown-linux-gnu --lib
+      - name: Run USB debug profile host tests
+        run: cargo test --no-default-features --features usb-debug --workspace --target x86_64-unknown-linux-gnu --lib
       - name: Run Clippy
         run: cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
       - name: Install coverage tool

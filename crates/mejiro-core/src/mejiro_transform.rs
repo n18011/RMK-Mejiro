@@ -811,6 +811,8 @@ pub(crate) fn transform_with_state(id: &str, state: &mut TransformState) -> Stro
         if left_part.conso.as_str() == "STN"
             && left_vowel.is_empty()
             && left_part.particle.as_str() == "tk"
+            && !right_has_sound
+            && !right_has_particle
         {
             kana.clear();
             let _ = kana.push_str("っ");
@@ -2140,5 +2142,102 @@ fn particle_command(left: &str, right: &str) -> Option<&'static str> {
         ("n", "nt") => Some("?"),
         ("n", "nk") => Some("!"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PARTICLES: [&str; 8] = ["", "n", "t", "k", "tk", "nt", "nk", "ntk"];
+
+    #[test]
+    fn every_user_abbreviation_emits_its_declared_romaji() {
+        for &(stroke, kana) in USER_ABBREVIATIONS {
+            let expected = kana_to_romaji(kana).expect(stroke);
+            assert_eq!(
+                transform(stroke).as_text(),
+                Some(expected.as_str()),
+                "{stroke}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_exact_and_composed_abbreviation_emits_its_declared_romaji() {
+        for &(stroke, kana) in ABSTRACT_ABBREVIATIONS {
+            let expected = kana_to_romaji(kana).expect(stroke);
+            assert_eq!(
+                transform(stroke).as_text(),
+                Some(expected.as_str()),
+                "{stroke}"
+            );
+        }
+
+        for &(left_stroke, left_kana) in ABSTRACT_LEFT {
+            for &(right_stroke, right_kana) in ABSTRACT_RIGHT {
+                let stroke = std::format!("{left_stroke}-{right_stroke}*");
+                let mut expected_kana = KanaText::new();
+                let _ = expected_kana.push_str(left_kana);
+                let _ = expected_kana.push_str(right_kana);
+                let expected_kana = replace_nofuu_with_nnafuu(expected_kana.as_str());
+                let expected = kana_to_romaji(expected_kana.as_str()).expect(&stroke);
+                assert_eq!(
+                    transform(&stroke).as_text(),
+                    Some(expected.as_str()),
+                    "{stroke}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_verb_dictionary_stroke_accepts_all_particle_combinations() {
+        for entry in VERB_DICTIONARY {
+            let (left, right) = split_id(entry.stroke);
+            for left_particle in PARTICLES {
+                for right_particle in PARTICLES {
+                    let stroke =
+                        std::format!("{}{}-{}{}*", left, left_particle, right, right_particle);
+                    assert!(transform(&stroke).is_supported(), "{stroke}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_kana_table_entry_round_trips_without_loss() {
+        for &(kana, expected) in KANA_ROMAJI {
+            assert_eq!(
+                kana_to_romaji(kana).expect(kana).as_str(),
+                expected,
+                "{kana}"
+            );
+        }
+        assert_eq!(kana_to_romaji("っあ").expect("sokuon before vowel"), "xtua");
+        assert_eq!(
+            kana_to_romaji("っー").expect("sokuon before long mark"),
+            "xtu-"
+        );
+    }
+
+    #[test]
+    fn every_sound_family_entry_is_transformable() {
+        for (consonant, _) in CONSONANTS {
+            for &(vowel, _, _) in VOWELS.iter() {
+                let stroke = std::format!("{consonant}{vowel}");
+                assert!(transform(&stroke).is_supported(), "{stroke}");
+            }
+        }
+        for &(stroke, _) in EXCEPTION_KANA {
+            assert!(transform(stroke).is_supported(), "{stroke}");
+        }
+        for &(stroke, _, _) in DIPHTHONGS
+            .iter()
+            .chain(MINOR_DIPHTHONGS.iter())
+            .chain(ENGLISH_DIPHTHONGS.iter())
+        {
+            assert!(transform(stroke).is_supported(), "{stroke}");
+        }
     }
 }

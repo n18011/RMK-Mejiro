@@ -18,6 +18,34 @@ use mejiro_core::mejiro::{
 
 pub const MEJIRO_KEY_COUNT: usize = 24;
 
+/// Write a formatted line to the USB CDC debug logger.
+///
+/// The USB logger appends `CRLF` to each record, so this is the firmware-side
+/// equivalent of a line-oriented `Serial.print`/`Serial.println` call. In a
+/// non-USB-debug build it expands to a no-op, keeping production firmware free
+/// of the `log` backend.
+#[cfg(feature = "usb-debug")]
+#[macro_export]
+macro_rules! usb_serial_print {
+    ($($arg:tt)*) => {
+        ::log::info!($($arg)*);
+    };
+}
+
+#[cfg(not(feature = "usb-debug"))]
+#[macro_export]
+macro_rules! usb_serial_print {
+    ($($arg:tt)*) => {};
+}
+
+/// Alias with an explicit line-oriented name for USB serial diagnostics.
+#[macro_export]
+macro_rules! usb_serial_println {
+    ($($arg:tt)*) => {
+        $crate::usb_serial_print!($($arg)*);
+    };
+}
+
 /// Maps each of the 24 logical Mejiro keys to an RMK keycode.
 ///
 /// The default map uses `Kb0` through `Kb23`, but another keyboard can use
@@ -139,9 +167,20 @@ impl MejiroController {
     }
 
     async fn handle(&mut self, event: MejiroKeyEvent) {
+        #[cfg(feature = "usb-debug")]
+        usb_serial_println!("mejiro event: {:?}", event);
+
         let Some(key) = self.keymap.resolve(event.keycode) else {
             return;
         };
+
+        #[cfg(feature = "usb-debug")]
+        usb_serial_println!(
+            "mejiro key: {:?} -> {:?}, pressed={}",
+            event.keycode,
+            key,
+            event.pressed
+        );
 
         let result = if event.pressed {
             self.session.press(key)
@@ -150,6 +189,8 @@ impl MejiroController {
         };
 
         if let Some(result) = result {
+            #[cfg(feature = "usb-debug")]
+            usb_serial_println!("mejiro result: {:?}", result);
             self.emit(result).await;
         }
     }
