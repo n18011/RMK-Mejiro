@@ -56,8 +56,9 @@ BLE split は右側をCentral、左側をPeripheralとして動作します。�
 `User9` を5秒保持して一度だけ探索を開始し、接続後に暗号化リンクが成立した場合だけアドレスを
 永続化します。`usb-debug` ビルドでは、保存peerの有無にかかわらず保存アドレスを無視し、
 検証用に探索を自動開始します。
-登録済みpeerの directed advertising がタイムアウトしても、別の公開advertiserへ自動的に
-フォールバックしません。QWERTYレイヤーの `LT(8,Escape)` は `(0,6,L)` の左手側にあります。
+登録済みpeerの directed advertising がタイムアウトした場合は、Central側の再起動などで
+古いアドレスが残った状態を復旧するため、Peripheral側でpeerを消去して公開advertisingへ
+切り替えます。QWERTYレイヤーの `LT(8,Escape)` は `(0,6,L)` の左手側にあります。
 Mejiroベースには同じ `LT(8,Escape)` を `(3,11,R)` に複製し、右手だけでもBluetoothレイヤーへ
 入れるようにしています。Bluetoothレイヤーへ入った後、隣の `(3,12,R)` にある `User9` を
 5秒保持するとpeer探索を開始できます。古い

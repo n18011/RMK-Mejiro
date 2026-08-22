@@ -190,8 +190,7 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
         let server = BleSplitPeripheralServer::new_default("rmk").unwrap();
         loop {
             if CLEAR_PEER_REQUEST.try_take().is_some() {
-                central_saved = false;
-                central_addr = None;
+                clear_saved_central_peer(&mut central_saved, &mut central_addr);
                 if let Err(()) = storage
                     .write_peer_address(PeerAddress::new(0, false, [0; 6]))
                     .await
@@ -234,7 +233,24 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
                     info!("Disconnected from the central");
                 }
                 Err(BleHostError::BleHost(Error::Timeout)) => {
-                    // Timeout, wait new keys to continue
+                    // A directed advertisement can become a dead end when the
+                    // central was reset independently. Clear the stale peer
+                    // and restart with a public advertisement so pairing can
+                    // recover without another flash/reset.
+                    if central_addr.is_some() {
+                        warn!("Directed split peer timed out; clearing stale peer and retrying public advertisement");
+                        clear_saved_central_peer(&mut central_saved, &mut central_addr);
+                        if let Err(()) = storage
+                            .write_peer_address(PeerAddress::new(0, false, [0; 6]))
+                            .await
+                        {
+                            warn!("Failed to clear timed-out split peer");
+                        }
+                        continue;
+                    }
+
+                    // Public advertisement timed out; wait for a new key event
+                    // before restarting the advertising loop.
                     error!("Connect to central timeout");
                     KEY_EVENT_CHANNEL.clear();
                     let _ = KEY_EVENT_CHANNEL.receive().await;
@@ -252,6 +268,11 @@ pub async fn initialize_nrf_ble_split_peripheral_and_run<
     };
 
     join(ble_task(runner), peri_task).await;
+}
+
+fn clear_saved_central_peer(central_saved: &mut bool, central_addr: &mut Option<[u8; 6]>) {
+    *central_saved = false;
+    *central_addr = None;
 }
 
 /// Create an advertiser to use to connect to a BLE Central, and wait for it to connect.
@@ -346,6 +367,22 @@ fn get_peri_advertiser<'a, C: Controller>(
         }
     };
     Ok(advertisement)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clear_saved_central_peer;
+
+    #[test]
+    fn clearing_saved_central_peer_switches_to_public_advertising_state() {
+        let mut central_saved = true;
+        let mut central_addr = Some([1, 2, 3, 4, 5, 6]);
+
+        clear_saved_central_peer(&mut central_saved, &mut central_addr);
+
+        assert!(!central_saved);
+        assert_eq!(central_addr, None);
+    }
 }
 
 /// This is a background task that is required to run forever alongside any other BLE tasks.
