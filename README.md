@@ -2,16 +2,17 @@
 
 [JEEBIS27/qmk_firmware の Mejiro31](https://github.com/JEEBIS27/qmk_firmware/tree/master/keyboards%2Fjeebis%2Fmejiro31)
 を、[n18011/Cygnus-M-RMK の `rmk-migration` branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
-をターゲットとしてRMK 0.8.2へ移植したファームウェアです。
+をターゲットとしてRMK 0.9.0へ移植したファームウェアです。
 
 ## 構成
 
 - Seeed XIAO nRF52840を使うBLE split keyboard
 - Central側のPMW3610トラックボール、Peripheral側のEC11エンコーダー
 - Vial対応、10レイヤー（Mejiro/Geminiベース、QWERTY、数字、機能、ポインティング、Bluetooth）
-- `Kb0`〜`Kb23`をMejiro入力へ割り当て、first-up chord処理とローマ字出力をRustで実装
+- RMKがBLE操作に予約する`User0`〜`User7`を避け、`User8`〜`User31`をMejiro入力へ割り当て
+  first-up chord処理とローマ字出力をRustで実装
 - `crates/mejiro-core`にRMK非依存のMejiroコアを配置し、ボードアプリから再利用可能
-- `crates/mejiro-rmk`にRMKイベント/HID接続アダプターを分離
+- `crates/mejiro-rmk`にRMK 0.9標準イベント/HID接続アダプターを分離
 
 ハードウェア配線とsplit設定は[target branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
 を維持し、Mejiro31のRP2040固有配線は持ち込みません。移植元のCソースは
@@ -42,12 +43,12 @@ cargo make --no-workspace check-dev
 保存領域を消去するため、古い設定を残さない検証用の動作です。`true`のままではbondが
 再起動後に残りません。`usb-debug`ビルドでは保存peerの有無にかかわらず保存アドレスを
 無視してCentralが毎回自動で探索を開始するため、USBログ検証では起動後に両側を接続するだけで構いません。通常ビルドの
-明示的なペアリングは、Central側Bluetoothレイヤーの`User9`を5秒保持してpeer探索を
+明示的なpeer再探索は、Central側Bluetoothレイヤーの`User7`を5秒保持してpeer探索を
 開始します。起動時のlayer 0はMejiroです。左親指または右親指の`LT(1,Space)`を保持すると
 QWERTYへ、右親指内側の`LT(2,Enter)`を保持するとQWERTY shiftへ移ります。Bluetoothレイヤーへ
 入る`LT(8,Escape)`はQWERTYレイヤーの左端に加え、Mejiroベースの右親指外側にもあります。
 保存領域を完全に消去した初回の通常ビルドでも、右側の`LT(8,Escape)`を保持してBluetooth層へ入り、
-隣の`User9`を5秒保持すればpeer探索を開始できます。暗号化リンクが成立した
+隣の`User7`を5秒保持すればpeer探索を開始できます。暗号化リンクが成立した
 peerだけが保存されます。Vialロック解除は
 `keyboard.toml`の設定に従います。
 
@@ -117,8 +118,8 @@ SWDでUSB-debugプロファイルを書き込む場合は、`flash-swd-usb-debug
 確認できます。アプリ側からArduinoの`Serial.print`相当の診断行を出す場合は、
 `mejiro_rmk::usb_serial_println!("value = {:?}", value)`を使えます。このUSB loggerは
 各レコードの末尾にCRLFを付けるため、出力は行単位です。通常ビルドでは同マクロはno-opになります。
-Mejiroキーイベントでは、`mejiro key: KbN -> LeftS, pressed=true`のように仮想キー番号から
-論理キー名への解決結果も出ます。Vial上の物理配置と変換エンジンを分けて確認できます。
+Mejiroキーイベントでは、`mejiro action: user=N, pressed=true`のようにRMK標準のUserキー番号と
+押下状態を確認できます。Vial上の物理配置と変換エンジンを分けて検証できます。
 
 ## 開発・検証
 

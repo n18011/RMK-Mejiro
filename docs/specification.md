@@ -1,6 +1,6 @@
 # RMK-Mejiro 現行仕様書
 
-最終確認日: 2026-08-21
+最終確認日: 2026-08-25
 
 この文書は、RMK-Mejiro の現在の実装を利用者・保守者向けに定義する仕様書です。
 セッション状態の正本は [`crates/mejiro-core/src/mejiro.rs`](../crates/mejiro-core/src/mejiro.rs)、変換表と変換処理の正本は
@@ -19,7 +19,7 @@ RMK-Mejiro は、Cygnus-M の Mejiro/Gemini 入力を first-up chord として�
 
 対象は次の構成です。
 
-- RMK 0.8.2
+- RMK 0.9.0
 - Seeed XIAO nRF52840 を使った BLE split keyboard
 - [`n18011/Cygnus-M-RMK`](https://github.com/n18011/Cygnus-M-RMK) の `rmk-migration` を
   ハードウェア基盤とする Cygnus-M
@@ -32,20 +32,22 @@ Mejiro31 の RP2040 固有配線や QMK の実行環境は対象外です。QMK 
 ## 2. 実行経路
 
 ```text
-keyboard.toml の Kb0..Kb23
+keyboard.toml の User8..User31（User0..User7 はRMK BLE予約）
         ↓
-RMK が解決したキーイベント
-        ↓  MEJIRO_EVENT_CHANNEL
-MejiroController（Central）
+RMK が解決した ActionEvent
+        ↓  Action::User + KeyboardEventPos::Key
+MejiroProcessor（Central）
         ↓
 MejiroSession → StrokeResult
         ↓
-KEYBOARD_REPORT_CHANNEL → HID レポート
+RMK の USB/BLE report channel → HID レポート
 ```
 
-RMK のキーマップ処理は通常のキー処理に加えて、`Kb0`〜`Kb23` の押下・解放を
-`MEJIRO_EVENT_CHANNEL` へ発行します。`MejiroController` はこのイベントだけを
-Mejiro 入力として消費します。Peripheral には Mejiro コントローラを配置しません。
+RMK 0.9のキーマップ処理は通常のキー処理後に`ActionEvent`を発行します。
+`MejiroProcessor`は公開されている`Action::User`、`KeyboardEventPos::Key`、
+`KeyboardEvent::pressed`を使って、`User8`〜`User31`の押下・解放だけをMejiro入力として
+消費します。接続状態は`ConnectionStatusChangeEvent`から取得し、アプリ側が選んだUSBまたは
+BLEの標準report channelへ出力します。Peripheral にはMejiroプロセッサを配置しません。
 
 出力は RMK の `from_ascii` とキーコードを使った US-HID 境界で生成されます。したがって、
 変換結果は日本語かなそのものではなく、ホスト側で解釈される ASCII ローマ字です。
@@ -53,14 +55,14 @@ Mejiro 入力として消費します。Peripheral には Mejiro コントロー
 BLE split は右側をCentral、左側をPeripheralとして動作します。ホスト側のBluetooth接続を
 持つのは右側のCentralだけで、左側は右側へ入力を転送するsplit peerです。公開サービスUUID
 だけでは通常ビルドのpeerを自動登録しません。通常ビルドでは未登録時に右側のBluetoothレイヤーで
-`User9` を5秒保持して一度だけ探索を開始し、接続後に暗号化リンクが成立した場合だけアドレスを
+`User7` を5秒保持して一度だけ探索を開始し、接続後に暗号化リンクが成立した場合だけアドレスを
 永続化します。`usb-debug` ビルドでは、保存peerの有無にかかわらず保存アドレスを無視し、
 検証用に探索を自動開始します。
 登録済みpeerの directed advertising がタイムアウトした場合は、Central側の再起動などで
 古いアドレスが残った状態を復旧するため、Peripheral側でpeerを消去して公開advertisingへ
 切り替えます。QWERTYレイヤーの `LT(8,Escape)` は `(0,6,L)` の左手側にあります。
 Mejiroベースには同じ `LT(8,Escape)` を `(3,11,R)` に複製し、右手だけでもBluetoothレイヤーへ
-入れるようにしています。Bluetoothレイヤーへ入った後、隣の `(3,12,R)` にある `User9` を
+入れるようにしています。Bluetoothレイヤーへ入った後、隣の `(3,12,R)` にある `User7` を
 5秒保持するとpeer探索を開始できます。古い
 Vial設定やBLE bondを残さないため、現在も
 `keyboard.toml` の `storage.clear_storage = true` を意図的に使っています。RMKでは起動ごとに
@@ -244,10 +246,10 @@ RMK 側の設計です。
 
 ## 8. キーボード構成
 
-`keyboard.toml` がレイヤー、matrix_map、split の寸法と `Kb0`〜`Kb23` の配置の正本です。
+`keyboard.toml` がレイヤー、`map`、split の寸法と `User8`〜`User31` の配置の正本です。
 `tools/validate_keyboard.py` はこのファイルと `vial.json` を読み取り、レイヤー数・各行の幅・
-`matrix_map` の重複・Mejiroキーの一意性とCygnus-M上の配置・split矩形の境界・Vialの物理配置と
-カスタムキーコード順序を検証します。layer 0 の `base` がMejiro/Gemini入力を持ち、そこだけが24個の `Kb` キーを持ちます。通常キー・機能キー・
+`map` の重複・Mejiroキーの一意性とCygnus-M上の配置・split矩形の境界・Vialの物理配置と
+カスタムキーコード順序を検証します。layer 0 の `base` がMejiro/Gemini入力を持ち、そこだけが24個の `User` キーを持ちます。通常キー・機能キー・
 マウス・数字・Bluetooth操作と共存します。物理行列の `(0,5)` はCygnus-M基板に存在しない
 意図的な空きスロットです。
 
@@ -263,15 +265,15 @@ RMK 側の設計です。
 Mejiroレイヤーの見た目は、Vialの行順で次のとおりです。
 
 ```text
-Kb0 Kb1 Kb2 Kb3 Kb4 Kb5       Kb12 Kb13 Kb14 Kb15 Kb16 Kb17
-_   Kb6 Kb7 Kb8 Kb9 Kb10 Kb11 Kb18 Kb19 Kb20 Kb21 Kb22 Kb23 _
+User8 User9 User10 User11 User12 User13       User20 User21 User22 User23 User24 User25
+_     User14 User15 User16 User17 User18 User19 User26 User27 User28 User29 User30 User31 _
 _   _   _   _   _   _   _       _   _   _   _   _   _   _
 _   _   _   _   _   LT(1,Space) _   LT(1,Space) LT(2,Enter) LT(8,Escape) _
 ```
 
-このうち右手の先頭キー `Kb18` は、物理matrixでは `(3,7,R)` に割り当てられています。
+このうち右手の先頭キー `User26` は、物理matrixでは `(3,7,R)` に割り当てられています。
 左手の先頭空きは `(1,6,L)` です。見た目の行番号とmatrix行番号を混同しないよう、実機ログの
-`mejiro key: KbN -> LogicalName` と併用します。
+`mejiro action: user=N, pressed=true` と併用します。
 
 ## 9. CI/CD と検証条件
 

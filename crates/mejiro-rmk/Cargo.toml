@@ -11,10 +11,7 @@ usb-debug = ["dep:log"]
 
 [dependencies]
 mejiro-core = { path = "../mejiro-core" }
-rmk = { version = "=0.8.2", default-features = false, features = [
-    "controller",
-    "mejiro",
-] }
+rmk = { git = "https://github.com/rmk-rs/rmk", rev = "55ce0f99c5f679ff0718e6ffea3b641fc61ccd1a", version = "=0.9.0", default-features = false }
 log = { version = "0.4", optional = true }
 
 [dev-dependencies]

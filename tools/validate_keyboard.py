@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "keyboard.toml"
 REFERENCE = ROOT / "upstream/qmk/keyboards/jeebis/mejiro31"
 EXPECTED_VIAL_CUSTOM_KEYCODES = (
-    [f"BT{index}" for index in range(5)]
+    [f"BT{index}" for index in range(3)]
     + ["NEXT_BT", "PREV_BT", "CLR_BT", "SWITCH", "CLR_PEER"]
     + [f"MEJIRO_KB{index}" for index in range(24)]
 )
@@ -63,8 +63,8 @@ EXPECTED_VIAL_GEOMETRY = (
 )
 
 EXPECTED_MEJIRO_GRID = (
-    ("Kb0", "Kb1", "Kb2", "Kb3", "Kb4", "Kb5", "Kb12", "Kb13", "Kb14", "Kb15", "Kb16", "Kb17"),
-    ("_", "Kb6", "Kb7", "Kb8", "Kb9", "Kb10", "Kb11", "Kb18", "Kb19", "Kb20", "Kb21", "Kb22", "Kb23", "_"),
+    ("User8", "User9", "User10", "User11", "User12", "User13", "User20", "User21", "User22", "User23", "User24", "User25"),
+    ("_", "User14", "User15", "User16", "User17", "User18", "User19", "User26", "User27", "User28", "User29", "User30", "User31", "_"),
     ("_", "_", "_", "_", "_", "_", "_", "_", "_", "_", "_", "_", "_", "_"),
     ("_", "_", "_", "_", "_", "LT(1,Space)", "_", "LT(1,Space)", "LT(2,Enter)", "LT(8,Escape)", "_"),
 )
@@ -106,6 +106,7 @@ EXPECTED_MEJIRO_COORDINATES = {
     22: (1, 10, "R"),
     23: (1, 11, "R"),
 }
+MEJIRO_USER_START = 8
 
 
 def layer_rows(text: str) -> list[list[str]]:
@@ -151,9 +152,9 @@ def integer(section_text: str, key: str) -> int:
 
 
 def matrix_map(config: str) -> list[list[str]]:
-    match = re.search(r'(?ms)^\s*matrix_map\s*=\s*"""(.*?)"""', config)
+    match = re.search(r'(?ms)^\s*map\s*=\s*"""(.*?)"""', config)
     if match is None:
-        raise SystemExit("layout matrix_map is missing")
+        raise SystemExit("layout map is missing")
     return layer_rows(match.group(1))
 
 
@@ -167,14 +168,14 @@ def parse_matrix_coordinates(
             match = re.fullmatch(r"\((\d+),(\d+),([LR])\)", token)
             if match is None:
                 raise ValueError(
-                    f"invalid matrix_map token at row {visual_row}, column {visual_col}: {token!r}"
+                    f"invalid layout.map token at row {visual_row}, column {visual_col}: {token!r}"
                 )
             mapped_row, mapped_col = (int(value) for value in match.groups()[:2])
             if mapped_row >= logical_rows or mapped_col >= logical_cols:
-                raise ValueError(f"matrix_map coordinate outside layout: {token!r}")
+                raise ValueError(f"layout.map coordinate outside layout: {token!r}")
             coordinate = (mapped_row, mapped_col)
             if coordinate in seen:
-                raise ValueError(f"matrix_map coordinate is duplicated: {token!r}")
+                raise ValueError(f"layout.map coordinate is duplicated: {token!r}")
             seen.add(coordinate)
             coordinates.append((mapped_row, mapped_col, match.group(3)))
     return coordinates
@@ -190,7 +191,7 @@ def validate_hand_coordinates(
             row_offset <= row < row_offset + row_count
             and col_offset <= col < col_offset + col_count
         ):
-            raise ValueError(f"matrix_map {hand} coordinate is outside its split matrix: ({row},{col})")
+            raise ValueError(f"layout.map {hand} coordinate is outside its split matrix: ({row},{col})")
 
 
 def vial_keymap_coordinates(vial: dict) -> list[tuple[int, int]]:
@@ -258,7 +259,7 @@ def validate_vial_contract(vial_path: Path, expected_coordinates: list[tuple[int
     actual_coordinates = vial_keymap_coordinates(vial)
     if actual_coordinates != expected_coordinates:
         raise ValueError(
-            "vial.json keymap coordinates differ from keyboard.toml matrix_map: "
+            "vial.json keymap coordinates differ from keyboard.toml layout.map: "
             f"{actual_coordinates!r} != {expected_coordinates!r}"
         )
 
@@ -270,7 +271,7 @@ def validate_mejiro_key_ids(key_ids: list[int]) -> None:
         or any(key_id > 31 for key_id in key_ids)
     ):
         raise ValueError(
-            "base Mejiro must contain 24 unique keys from Kb0..Kb31: "
+            "base Mejiro must contain 24 unique keys from User0..User31: "
             f"{key_ids}"
         )
 
@@ -280,13 +281,13 @@ def validate_mejiro_layout(
 ) -> None:
     if tuple(tuple(row) for row in rows) != EXPECTED_MEJIRO_GRID:
         raise ValueError(
-            "base Mejiro Kb placement differs from the Cygnus-M contract: "
+            "base Mejiro User placement differs from the Cygnus-M contract: "
             f"{rows!r}"
         )
 
     for visual_row, row in enumerate(rows):
         for visual_col, token in enumerate(row):
-            match = re.fullmatch(r"Kb(\d+)", token)
+            match = re.fullmatch(r"User(\d+)", token)
             if match is None:
                 continue
             coordinate = re.fullmatch(
@@ -294,7 +295,7 @@ def validate_mejiro_layout(
             )
             if coordinate is None:
                 raise ValueError(
-                    f"invalid matrix_map token for {token}: "
+                    f"invalid layout.map token for {token}: "
                     f"{map_rows[visual_row][visual_col]!r}"
                 )
             actual = (
@@ -302,7 +303,11 @@ def validate_mejiro_layout(
                 int(coordinate.group(2)),
                 coordinate.group(3),
             )
-            expected = EXPECTED_MEJIRO_COORDINATES[int(match.group(1))]
+            user_key = int(match.group(1))
+            logical_index = user_key - MEJIRO_USER_START
+            if not 0 <= logical_index < 24:
+                raise ValueError(f"{token} is outside the default Mejiro User8..User31 range")
+            expected = EXPECTED_MEJIRO_COORDINATES[logical_index]
             if actual != expected:
                 raise ValueError(
                     f"{token} is mapped to {actual}, expected {expected}"
@@ -315,19 +320,20 @@ def main() -> int:
         raise SystemExit("upstream QMK reference is missing")
 
     layout = section(config, "layout")
-    layer_count = integer(layout, "layers")
+    keymap = section(config, "keymap")
+    layer_count = integer(keymap, "layers")
     logical_rows = integer(layout, "rows")
     logical_cols = integer(layout, "cols")
     map_rows = matrix_map(layout)
     if len(map_rows) != logical_rows:
-        raise SystemExit(f"matrix_map has {len(map_rows)} rows, expected {logical_rows}")
+        raise SystemExit(f"layout map has {len(map_rows)} rows, expected {logical_rows}")
 
     try:
         coordinates = parse_matrix_coordinates(map_rows, logical_rows, logical_cols)
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
-    blocks = re.findall(r'\[\[layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""', config, re.S)
+    blocks = re.findall(r'\[\[keymap\.layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""', config, re.S)
     if len(blocks) != layer_count:
         raise SystemExit(f"layout declares {layer_count} layers, found {len(blocks)} blocks")
 
@@ -338,7 +344,7 @@ def main() -> int:
         counts = [len(row) for row in rows]
         expected = [len(row) for row in map_rows]
         if counts != expected:
-            raise SystemExit(f"layer {name!r} has row widths {counts}, expected matrix_map widths {expected}")
+            raise SystemExit(f"layer {name!r} has row widths {counts}, expected layout map widths {expected}")
 
     if len(set(names)) != len(names):
         raise SystemExit("layer names must be unique")
@@ -373,14 +379,16 @@ def main() -> int:
             raise SystemExit(f"mouse layer has no layer-tap entry for {required_layer!r}")
 
     for name, body in blocks:
-        key_ids = [int(value) for value in re.findall(r"\bKb(\d+)\b", body)]
+        key_ids = [int(value) for value in re.findall(r"\bUser(\d+)\b", body)]
         if name == "base":
             try:
                 validate_mejiro_key_ids(key_ids)
             except ValueError as error:
                 raise SystemExit(str(error)) from error
-        elif key_ids:
-            raise SystemExit(f"Mejiro Kb keys leaked into layer {name!r}: {key_ids}")
+        elif key_ids and (
+            name != "bluetooth" or any(key_id >= MEJIRO_USER_START for key_id in key_ids)
+        ):
+            raise SystemExit(f"Mejiro User keys leaked into layer {name!r}: {key_ids}")
 
     split = section(config, "split")
     if not re.search(r'(?m)^\s*connection\s*=\s*"ble"\s*$', split):

@@ -29,7 +29,7 @@ class ValidateMejiroLayoutTests(unittest.TestCase):
         map_rows = VALIDATOR.matrix_map(layout)
         blocks = dict(
             re.findall(
-                r'\[\[layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""',
+                r'\[\[keymap\.layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""',
                 config,
                 re.S,
             )
@@ -41,7 +41,7 @@ class ValidateMejiroLayoutTests(unittest.TestCase):
 
     def test_mejiro_is_the_default_base_layer(self):
         config = (Path(__file__).parents[1] / "keyboard.toml").read_text(encoding="utf-8")
-        names = re.findall(r'\[\[layer\]\]\s*\nname = "([^"]+)"', config)
+        names = re.findall(r'\[\[keymap\.layer\]\]\s*\nname = "([^"]+)"', config)
         self.assertEqual(names, list(VALIDATOR.EXPECTED_LAYER_NAMES))
         self.assertEqual(names[0], "base")
 
@@ -49,7 +49,7 @@ class ValidateMejiroLayoutTests(unittest.TestCase):
         config = (Path(__file__).parents[1] / "keyboard.toml").read_text(encoding="utf-8")
         blocks = dict(
             re.findall(
-                r'\[\[layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""',
+                r'\[\[keymap\.layer\]\]\s*\nname = "([^"]+)"\s*\nkeys = """(.*?)"""',
                 config,
                 re.S,
             )

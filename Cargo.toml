@@ -18,44 +18,52 @@ license = "MIT OR Apache-2.0"
 # Keep host tests free of embedded logging backends. Firmware tasks select a
 # profile explicitly below.
 default = []
-swd-debug = ["rmk/defmt"]
+firmware = []
+swd-debug = ["firmware", "rmk/defmt"]
 # RMK's USB logger is a CDC-ACM interface. It cannot be combined with RMK's
 # defmt feature, so USB logging is an explicit alternative build profile.
-usb-debug = ["rmk/usb_log", "mejiro-rmk/usb-debug"]
+usb-debug = ["firmware", "rmk/usb_log", "mejiro-rmk/usb-debug"]
 
 [dependencies]
 mejiro-core = { path = "crates/mejiro-core" }
 mejiro-rmk = { path = "crates/mejiro-rmk" }
-rmk = { version = "=0.8.2", default-features = false, features = [
+rmk = { git = "https://github.com/rmk-rs/rmk", rev = "55ce0f99c5f679ff0718e6ffea3b641fc61ccd1a", version = "=0.9.0", default-features = false, features = [
     "storage",
     "vial",
-    "vial_lock",
+    "host_lock",
     "split",
-    "mejiro",
+    "async_matrix",
+    "watchdog",
 ] }
 
 [target.'cfg(target_arch = "arm")'.dependencies]
-rmk = { version = "=0.8.2", default-features = false, features = [
+rmk = { git = "https://github.com/rmk-rs/rmk", rev = "55ce0f99c5f679ff0718e6ffea3b641fc61ccd1a", version = "=0.9.0", default-features = false, features = [
+    "storage",
+    "vial",
+    "host_lock",
+    "split",
+    "async_matrix",
+    "watchdog",
     "nrf52840_ble",
     "adafruit_bl",
 ] }
-nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", features = [
+nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "f54b6389ffa2750d4d3a4f5435660cb66b47e51a", features = [
     "defmt",
     "peripheral",
     "central",
     "nrf52840",
 ] }
-nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", features = [
+nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc", rev = "f54b6389ffa2750d4d3a4f5435660cb66b47e51a", features = [
     "defmt",
     "critical-section-impl",
     "nrf52840",
 ] }
-bt-hci = { version = "0.6", default-features = false, features = ["defmt"] }
+bt-hci = { version = "0.9", default-features = false, features = ["defmt"] }
 
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 embassy-time = { version = "0.5", features = ["tick-hz-32_768", "defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.8", features = [
+embassy-nrf = { version = "0.11", features = [
     "defmt",
     "nrf52840",
     "time-driver-rtc1",
@@ -64,24 +72,15 @@ embassy-nrf = { version = "0.8", features = [
     "nfc-pins-as-gpio",
     "time",
 ] }
-embassy-executor = { version = "0.9", features = [
+embassy-executor = { version = "0.10", features = [
     "defmt",
-    "arch-cortex-m",
+    "platform-cortex-m",
     "executor-thread",
 ] }
 defmt = "1.0"
 defmt-rtt = "1.0"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 static_cell = "2"
-
-rand = { version = "0.8.4", default-features = false }
-rand_core = { version = "0.6" }
-rand_chacha = { version = "0.3", default-features = false }
-embassy-usb-driver = "=0.2.0"
-
-[patch.crates-io]
-rmk = { path = "vendor/rmk-0.8.2" }
-rmk-macro = { path = "vendor/rmk-macro-0.7.1" }
 
 [build-dependencies]
 xz2 = "0.1.7"
@@ -92,10 +91,12 @@ const-gen = "1.6"
 [[bin]]
 name = "central"
 path = "src/central.rs"
+required-features = ["firmware"]
 
 [[bin]]
 name = "peripheral"
 path = "src/peripheral.rs"
+required-features = ["firmware"]
 
 [profile.dev]
 codegen-units = 1      # better optimizations

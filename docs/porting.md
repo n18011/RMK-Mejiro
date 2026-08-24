@@ -21,9 +21,12 @@ PMW3610、EC11、Vial構成へMejiro入力層を載せています。
 
 ## キーイベント境界
 
-RMKの標準キーマップには`Kb0`〜`Kb23`を割り当て、RMK本体の標準キー処理が解決した
-イベントをvendored RMKの`MEJIRO_EVENT_CHANNEL`へ複製します。`MejiroController`はその
-イベントだけを消費して、first-up確定、ローマ字変換、キーコード出力を担当します。
+RMK 0.9の標準キーマップには、BLE操作用に予約された`User0`〜`User7`を避けて
+`User8`〜`User31`をMejiroへ割り当て、RMK本体の標準キー処理が
+解決した`ActionEvent`を`mejiro-rmk`の`MejiroProcessor`が購読します。プロセッサは
+`Action::User`かつ`KeyboardEventPos::Key`のイベントだけを消費し、first-up確定、
+ローマ字変換、キーコード出力を担当します。押下状態とキー位置はRMK標準イベントの
+公開フィールドから取得できます。
 
 この境界を設けることで、Mejiroの純粋ロジックはホスト上でTDDでき、BLE splitや
 トラックボールのドライバとは独立して検証できます。
@@ -33,15 +36,17 @@ RMKの標準キーマップには`Kb0`〜`Kb23`を割り当て、RMK本体の標
 第1段階として、変換・セッション・出力契約・辞書・契約テストを
 `crates/mejiro-core`へ抽出しました。このcrateは`heapless`だけに依存する`no_std`ライブラリで、
 RMKのイベントチャネルやボード設定を参照しません。ルートcrateは互換re-exportを提供し、
-既存の`MejiroController`から同じAPIを使える状態を維持しています。
+既存の`rmk_mejiro::mejiro`から同じAPIを使える状態を維持しています。
 
-RMK固有の`MejiroController`は`crates/mejiro-rmk`アダプターcrateへ分離しました。
+RMK固有の`MejiroProcessor`は`crates/mejiro-rmk`アダプターcrateへ分離しました。
 `keyboard.toml`、BLE/Vial、nRF52840の依存はボードアプリ側に残しています。
-アダプターが有効化するRMK機能は`controller`と`mejiro`だけで、storage・Vial・splitは
-利用側のボードcrateが選択します。
-入力コードは既定では`Kb0`〜`Kb23`ですが、別のキーマップでは
-`MejiroController::with_keymap(MejiroKeyMap::new([...]))`で`Kb0`〜`Kb31`から選んだ任意の24キーへ
-差し替えられます（RMKの`mejiro`イベント境界が仮想`Kb`キーを通知するためです）。
+アダプターはRMKの`processor`マクロ、`ActionEvent`、`ConnectionStatusChangeEvent`、
+`Report`、標準のUSB/BLE report channelだけを利用し、`controller`や`mejiro`という
+vendor機能には依存しません。storage・Vial・splitなどのRMK機能は利用側のボードcrateが
+選択します。
+入力コードはこのファームウェアでは`User8`〜`User31`ですが、別のキーマップでは
+`MejiroProcessor::with_keymap(sink, MejiroKeyMap::new([...]))`で`User0`〜`User31`から選んだ
+任意の24キーへ差し替えられます。
 
 ## 差分監査と判定
 
@@ -54,7 +59,7 @@ QMK C実装とRust実装へ同じ29,003ケースを流し、実行時の出力�
 
 | 項目 | QMK版 | RMK版 | 判定 |
 | --- | --- | --- | --- |
-| ハードウェア | Mejiro31 / RP2040固有の配線 | Cygnus-M / nRF52840 BLE splitの`Kb0`〜`Kb23` | 意図した適応 |
+| ハードウェア | Mejiro31 / RP2040固有の配線 | Cygnus-M / nRF52840 BLE splitの`User8`〜`User31` | 意図した適応 |
 | HID出力 | `send_string`と任意のJIS記号変換 | RMKの`from_ascii`によるUS-HID ASCII出力 | 意図した適応。JISモードは未提供 |
 | 変換失敗時 | GeminiのSTNキーをパススルー | `Unsupported`を出力せず破棄 | 意図した適応。RMK側にGemini raw HID境界がないため |
 | 全押しキャンセル | 変換失敗で無出力 | `StrokeResult::Noop`で明示 | 等価 |
@@ -74,7 +79,7 @@ Rust側で再現しています。特に`#`のリピート、例外かなの優�
 
 ```sh
 RUST_MIN_STACK=67108864 cargo fmt --all -- --check
-RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu --lib
+RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu
 cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
 cargo make --no-workspace qmk-dynamic-regression
 cargo llvm-cov --workspace --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
