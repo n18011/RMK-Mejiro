@@ -11,8 +11,13 @@
 - Vial対応、10レイヤー（Mejiro/Geminiベース、QWERTY、数字、機能、ポインティング、Bluetooth）
 - RMKがBLE操作に予約する`User0`〜`User7`を避け、`User8`〜`User31`をMejiro入力へ割り当て
   first-up chord処理とローマ字出力をRustで実装
-- `crates/mejiro-core`にRMK非依存のMejiroコアを配置し、ボードアプリから再利用可能
-- `crates/mejiro-rmk`にRMK 0.9標準イベント/HID接続アダプターを分離
+- [mejiro-core](https://github.com/n18011/mejiro/tree/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core)と
+  [mejiro-rmk](https://github.com/n18011/mejiro/tree/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-rmk)を
+  Git依存として利用
+
+Mejiro crate は `Cargo.toml` で `n18011/mejiro` の commit
+`ae395bd9bd56a7010d79fd7e94c7494928e4e97c` に固定しています。実装の重複を避けるため、
+ローカルの `crates` 配下には Mejiro crate を保持していません。
 
 ハードウェア配線とsplit設定は[target branch](https://github.com/n18011/Cygnus-M-RMK/tree/rmk-migration)
 を維持し、Mejiro31のRP2040固有配線は持ち込みません。移植元のCソースは
@@ -132,14 +137,17 @@ RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu
 RUST_MIN_STACK=67108864 cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
 RUST_MIN_STACK=67108864 cargo test --no-default-features --features usb-debug --workspace --target x86_64-unknown-linux-gnu --lib
 RUST_MIN_STACK=67108864 cargo clippy --no-default-features --features usb-debug --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
-cargo llvm-cov --workspace --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
 ```
 
-Mejiroの変換ロジックだけを短時間で確認する場合は、次の1コマンドで十分です。
+Mejiroの変換ロジックを外部リポジトリの clone から確認する場合は、次のコマンドを実行します。
+`/path/to/mejiro` は `n18011/mejiro` の clone 先に置き換えてください。
 
 ```sh
-RUST_MIN_STACK=67108864 cargo test -p mejiro-core --target x86_64-unknown-linux-gnu --lib
+RUST_MIN_STACK=67108864 cargo test --manifest-path /path/to/mejiro/mejiro-core/Cargo.toml --target x86_64-unknown-linux-gnu --lib
+RUST_MIN_STACK=67108864 cargo test --manifest-path /path/to/mejiro/mejiro-rmk/Cargo.toml --target x86_64-unknown-linux-gnu --lib
 ```
+
+CI の行カバレッジ検査は、同じ commit の2 crateを一時 workspace として実行します。
 
 QMKの固定表だけでなく実行結果まで比較する場合は、`cc`が利用可能な環境で次を実行します。
 約2.9万件の略語・動詞・かな・音節・助詞ストロークを一時プローブへ流し、QMKの`#`リピート

@@ -1,6 +1,6 @@
 [workspace]
-members = [".", "crates/mejiro-core", "crates/mejiro-rmk"]
-default-members = [".", "crates/mejiro-core", "crates/mejiro-rmk"]
+members = ["."]
+default-members = ["."]
 resolver = "2"
 
 [package]
@@ -25,8 +25,9 @@ swd-debug = ["firmware", "rmk/defmt"]
 usb-debug = ["firmware", "rmk/usb_log", "mejiro-rmk/usb-debug"]
 
 [dependencies]
-mejiro-core = { path = "crates/mejiro-core" }
-mejiro-rmk = { path = "crates/mejiro-rmk" }
+# The shared Mejiro crates are maintained in their standalone repository.
+mejiro-core = { git = "https://github.com/n18011/mejiro", rev = "ae395bd9bd56a7010d79fd7e94c7494928e4e97c", version = "=0.1.0" }
+mejiro-rmk = { git = "https://github.com/n18011/mejiro", rev = "ae395bd9bd56a7010d79fd7e94c7494928e4e97c", version = "=0.1.0" }
 rmk = { git = "https://github.com/rmk-rs/rmk", rev = "55ce0f99c5f679ff0718e6ffea3b641fc61ccd1a", version = "=0.9.0", default-features = false, features = [
     "storage",
     "vial",

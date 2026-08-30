@@ -6,17 +6,62 @@ QMK firmware; it verifies the static data that the Rust implementation claims
 to port, so a dictionary edit cannot silently drift from the source snapshot.
 """
 
+import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QMK_ROOT = ROOT / "upstream/qmk/keyboards/jeebis/mejiro31"
-QMK_README = ROOT / "upstream/qmk/README.md"
-RUST_TRANSFORM = ROOT / "crates/mejiro-core/src/mejiro_transform.rs"
-RUST_VERBS = ROOT / "crates/mejiro-core/src/mejiro_verbs.rs"
+MEJIRO_GIT = "https://github.com/n18011/mejiro"
+MEJIRO_REV = "ae395bd9bd56a7010d79fd7e94c7494928e4e97c"
 EXPECTED_SNAPSHOT = "c0f986d9608d377a0ed4ade345a8b4e9300f37c8"
+
+
+def configured_path(name: str, default: Path) -> Path:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else ROOT / path
+
+
+def mejiro_core_root() -> Path:
+    configured = os.environ.get("MEJIRO_CORE_ROOT")
+    if configured is not None:
+        return configured_path("MEJIRO_CORE_ROOT", ROOT)
+
+    metadata = subprocess.run(
+        [
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--locked",
+            "--manifest-path",
+            str(ROOT / "Cargo.toml"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    source = f"git+{MEJIRO_GIT}?rev={MEJIRO_REV}#{MEJIRO_REV}"
+    packages = json.loads(metadata.stdout)["packages"]
+    for package in packages:
+        if package["name"] == "mejiro-core" and package["source"] == source:
+            return Path(package["manifest_path"]).parent
+    raise SystemExit(f"could not resolve mejiro-core from {source}")
+
+
+CORE_ROOT = mejiro_core_root()
+QMK_ROOT = configured_path(
+    "MEJIRO_QMK_ROOT", ROOT / "upstream/qmk/keyboards/jeebis/mejiro31"
+)
+QMK_README = configured_path("MEJIRO_QMK_README", ROOT / "upstream/qmk/README.md")
+RUST_TRANSFORM = CORE_ROOT / "src/mejiro_transform.rs"
+RUST_VERBS = CORE_ROOT / "src/mejiro_verbs.rs"
 
 
 def array_body(source: str, marker: str) -> str:

@@ -1464,6 +1464,7 @@ dependencies = [
 [[package]]
 name = "mejiro-core"
 version = "0.1.0"
+source = "git+https://github.com/n18011/mejiro?rev=ae395bd9bd56a7010d79fd7e94c7494928e4e97c#ae395bd9bd56a7010d79fd7e94c7494928e4e97c"
 dependencies = [
  "heapless 0.8.0",
 ]
@@ -1471,8 +1472,8 @@ dependencies = [
 [[package]]
 name = "mejiro-rmk"
 version = "0.1.0"
+source = "git+https://github.com/n18011/mejiro?rev=ae395bd9bd56a7010d79fd7e94c7494928e4e97c#ae395bd9bd56a7010d79fd7e94c7494928e4e97c"
 dependencies = [
- "critical-section",
  "log",
  "mejiro-core",
  "rmk",

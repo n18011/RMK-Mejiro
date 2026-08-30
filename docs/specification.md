@@ -3,10 +3,10 @@
 最終確認日: 2026-08-25
 
 この文書は、RMK-Mejiro の現在の実装を利用者・保守者向けに定義する仕様書です。
-セッション状態の正本は [`crates/mejiro-core/src/mejiro.rs`](../crates/mejiro-core/src/mejiro.rs)、変換表と変換処理の正本は
-[`crates/mejiro-core/src/mejiro_transform.rs`](../crates/mejiro-core/src/mejiro_transform.rs)、出力境界の正本は
-[`crates/mejiro-core/src/mejiro_output.rs`](../crates/mejiro-core/src/mejiro_output.rs)、RMK と HID の接続の正本は
- [`crates/mejiro-rmk/src/lib.rs`](../crates/mejiro-rmk/src/lib.rs)、キーボードの物理構成と
+セッション状態の正本は [`mejiro.rs`](https://github.com/n18011/mejiro/blob/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core/src/mejiro.rs)、変換表と変換処理の正本は
+[`mejiro_transform.rs`](https://github.com/n18011/mejiro/blob/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core/src/mejiro_transform.rs)、出力境界の正本は
+[`mejiro_output.rs`](https://github.com/n18011/mejiro/blob/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core/src/mejiro_output.rs)、RMK と HID の接続の正本は
+[`mejiro-rmk/src/lib.rs`](https://github.com/n18011/mejiro/blob/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-rmk/src/lib.rs)、キーボードの物理構成と
 レイヤーの正本は [`keyboard.toml`](../keyboard.toml) です。
 
 QMK 版との対応理由・意図した差分は [`porting.md`](porting.md)、検証結果は
@@ -284,10 +284,11 @@ _   _   _   _   _   LT(1,Space) _   LT(1,Space) LT(2,Enter) LT(8,Escape) _
 - `python3 tools/validate_keyboard.py`
 - `python3 tools/qmk_regression.py`
 - `cargo fmt --all -- --check`
+- `n18011/mejiro` の `mejiro-core` と `mejiro-rmk` のホストテスト
 - `cargo test --workspace --target x86_64-unknown-linux-gnu --lib`
 - `cargo test --no-default-features --features usb-debug --workspace --target x86_64-unknown-linux-gnu --lib`
 - Clippy を `-D warnings` で実行
-- `cargo llvm-cov` で行カバレッジ 80%以上を要求
+- `n18011/mejiro` の一時 workspace に対する `cargo llvm-cov` で行カバレッジ 80%以上を要求
 
 ### Firmware ジョブ
 
@@ -299,7 +300,7 @@ UF2 と HEX を生成し、ELF/UF2/HEX を GitHub Actions artifact として保�
 仕様変更時は、少なくとも次を更新・実行します。
 
 1. 本仕様書の影響する契約を更新
-2. `crates/mejiro-core/src/lib.rs` または `crates/mejiro-rmk/src/lib.rs` のホスト契約テストを追加・修正
+2. [mejiro リポジトリ](https://github.com/n18011/mejiro) の `mejiro-core/src/lib.rs` または `mejiro-rmk/src/lib.rs` のホスト契約テストを追加・修正し、依存 commit を更新
 3. キーボード設定を変更した場合は `tools/validate_keyboard.py` を実行
 4. Host 検証と Firmware 検証を CI で完了
 

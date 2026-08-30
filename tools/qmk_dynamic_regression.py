@@ -9,6 +9,7 @@ hide behind matching static data.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import shutil
@@ -19,6 +20,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 QMK_ROOT = ROOT / "upstream/qmk/keyboards/jeebis/mejiro31"
+MEJIRO_GIT = "https://github.com/n18011/mejiro"
+MEJIRO_REV = "ae395bd9bd56a7010d79fd7e94c7494928e4e97c"
 TARGET = "x86_64-unknown-linux-gnu"
 
 
@@ -164,7 +167,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-mejiro-core = {{ path = "{(ROOT / "crates/mejiro-core").as_posix()}" }}
+mejiro-core = {{ git = "{MEJIRO_GIT}", rev = "{MEJIRO_REV}", version = "=0.1.0" }}
 '''
 
 
@@ -332,8 +335,7 @@ def main() -> int:
             ],
             corpus,
             env={
-                **dict(__import__("os").environ),
-                "CARGO_NET_OFFLINE": "true",
+                **os.environ,
                 "RUST_MIN_STACK": "67108864",
             },
         )

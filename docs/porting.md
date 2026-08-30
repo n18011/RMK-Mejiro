@@ -5,10 +5,13 @@
 
 ## 対応関係
 
+Mejiro の共通 crate は [`n18011/mejiro`](https://github.com/n18011/mejiro) の
+commit `ae395bd9bd56a7010d79fd7e94c7494928e4e97c` を参照します。
+
 | QMK source | RMK-Mejiro |
 | --- | --- |
 | `mejiro_fifo.c` first-up chord FIFO | `MejiroSession` |
-| `mejiro_transform.c` | `crates/mejiro-core/src/mejiro_transform.rs` |
+| `mejiro_transform.c` | [`mejiro-core/src/mejiro_transform.rs`](https://github.com/n18011/mejiro/blob/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core/src/mejiro_transform.rs) |
 | `mejiro_commands.c` | `KeyAction` とコマンド分岐 |
 | `mejiro_abbreviations.c` | 略語テーブル |
 | `mejiro_verb.c` | 特殊動詞・活用拡張ポイント |
@@ -34,11 +37,11 @@ RMK 0.9の標準キーマップには、BLE操作用に予約された`User0`〜
 ## crate境界
 
 第1段階として、変換・セッション・出力契約・辞書・契約テストを
-`crates/mejiro-core`へ抽出しました。このcrateは`heapless`だけに依存する`no_std`ライブラリで、
+[`mejiro-core`](https://github.com/n18011/mejiro/tree/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-core)へ抽出しました。このcrateは`heapless`だけに依存する`no_std`ライブラリで、
 RMKのイベントチャネルやボード設定を参照しません。ルートcrateは互換re-exportを提供し、
 既存の`rmk_mejiro::mejiro`から同じAPIを使える状態を維持しています。
 
-RMK固有の`MejiroProcessor`は`crates/mejiro-rmk`アダプターcrateへ分離しました。
+RMK固有の`MejiroProcessor`は[`mejiro-rmk`](https://github.com/n18011/mejiro/tree/ae395bd9bd56a7010d79fd7e94c7494928e4e97c/mejiro-rmk)アダプターcrateへ分離しました。
 `keyboard.toml`、BLE/Vial、nRF52840の依存はボードアプリ側に残しています。
 アダプターはRMKの`processor`マクロ、`ActionEvent`、`ConnectionStatusChangeEvent`、
 `Report`、標準のUSB/BLE report channelだけを利用し、`controller`や`mejiro`という
@@ -79,12 +82,15 @@ Rust側で再現しています。特に`#`のリピート、例外かなの優�
 
 ```sh
 RUST_MIN_STACK=67108864 cargo fmt --all -- --check
-RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu
+RUST_MIN_STACK=67108864 cargo test --workspace --target x86_64-unknown-linux-gnu --lib
 cargo clippy --workspace --lib --target x86_64-unknown-linux-gnu -- -D warnings
 cargo make --no-workspace qmk-dynamic-regression
-cargo llvm-cov --workspace --target x86_64-unknown-linux-gnu --lib --fail-under-lines 80
 cargo make uf2 --release
 ```
+
+共通 crate の単体テストと coverage は、同じ commit の `n18011/mejiro` clone に対して
+`mejiro-core/Cargo.toml` と `mejiro-rmk/Cargo.toml` を実行します。CI では2 crateを一時
+workspaceにまとめて行カバレッジ80%以上を検査します。
 
 `nrf-sdc`のBindgenには`clang`と`libclang-dev`が必要です。CIはホストTDD、Clippy、
 カバレッジ、`keyboard.toml`検証、QMK静的テーブル回帰、central/peripheralの
