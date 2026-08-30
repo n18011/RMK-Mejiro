@@ -239,5 +239,5 @@ subs = 1
 [storage]
 enabled = true
 # Migration reset: erase legacy Vial/BLE storage at boot. Set false after one clean boot.
-clear_storage = true
+clear_storage = false
 clear_layout = false
