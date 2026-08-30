@@ -231,6 +231,7 @@ args = [
 dependencies = ["objcopy-usb-debug-peripheral"]
 
 [tasks.uf2]
+workspace = false
 dependencies = ["uf2-central", "uf2-peripheral"]
 
 [tasks.flash-uf2-central]
